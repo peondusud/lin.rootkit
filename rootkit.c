@@ -13,9 +13,10 @@
 #include <linux/types.h>
 #include <linux/socket.h>
 #include <linux/inet.h>
+#include <linux/limits.h>
 
 #define ETH_P_ALL       0x0003
-#if 0 //64 bits machine //__WORDSIZE == 64
+#if ( __WORDSIZE == 64 ) //64 bits machine //__WORDSIZE == 64
 #define KERN_MEM_BEGIN 0xffffffff81000000
 #define KERN_MEM_END 0xffffffff81e42000
 #else
