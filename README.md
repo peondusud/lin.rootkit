@@ -1,7 +1,22 @@
 lin.rootkit
 ===========
+To build the module :
+$> make
+
+To load the module :
+$> insmod rootkit.ko
+
+Check the module is loaded :
+$> lsmod
+
+To remove the module :
+$> rmmod rootkit
+
+Check the rootkit messages : 
+tail -f /var/log/kern.log
 
 The features of our rootkit : 
+=============================
 
 - A root access (with kill -x yzx) 
 

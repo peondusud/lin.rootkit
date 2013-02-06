@@ -1,5 +1,10 @@
 # Object files
 *.o
+*.ko
+*.cmd
+*.mod.c
+modules.order
+Module.symvers
 
 # Libraries
 *.lib
