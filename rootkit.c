@@ -24,11 +24,9 @@
 #include <asm/processor.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
-#include <asm/uaccess.h>
 #include <asm/errno.h>
 #include <asm/io.h>
 #include <asm/segment.h>
-#include <asm/uaccess.h>
 
 
 #define HOOK_READ
@@ -72,7 +70,7 @@ struct task_struct *get_task(pid_t pid) {
     do {
         if (p->pid == pid)
             return p;
-        p = p->next_task;
+        p =(struct task_struct *) p->tasks.next;
     } while (p != current);
     return NULL;
 
