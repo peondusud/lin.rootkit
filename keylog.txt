@@ -1,2 +1,2 @@
-text@esiea.fr{ENTER}ssh rooot{BACKSPACE}{BACKSPACE}t:passwd@127.0.0.1{ENTER}sudo -s{ENTER}paswwd{ENTER}mail@esiea.fr
-sdf@fssd.co.uk
+text@esiea.fr{ENTER}ssh rooot{BACKSPACE}{BACKSPACE}t:passwd@127.0.0.1{ENTER}sudo -s{ENTER}paswwd{ENTER}mail@esiea.frsdf@fssd.co.uk
+sdf@fssd.co.uk{ENTER}sftp username@hostname{ENTER}passwddd{ENTER}{ENTER}{ENTER}{BACKSPACE}{BACKSPACE}scp jwh128@lionxi.rcc.psu.edu:results.txt .{ENTER}pcw{ENTER}
